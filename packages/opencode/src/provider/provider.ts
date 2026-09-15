@@ -2010,7 +2010,7 @@ const layer = Layer.effect(
       if (cfg.model) return parseModel(cfg.model)
 
       const s = yield* InstanceState.get(state)
-      const recent = yield* fs.readJson(path.join(Global.Path.state, "model.json")).pipe(
+      const recent = yield* fs.readJson(Global.Path.model).pipe(
         Effect.map((x): { providerID: ProviderV2.ID; modelID: ModelV2.ID }[] => {
           if (!isRecord(x) || !Array.isArray(x.recent)) return []
           return x.recent.flatMap((item) => {
