@@ -8,9 +8,9 @@ import { Flag } from "./flag/flag"
 import { makeGlobalNode } from "./effect/app-node"
 
 const app = "opencode"
-const data = path.join(xdgData!, app)
+const data = Flag.OPENCODE_DATA_DIR ?? path.join(xdgData!, app)
 const cache = path.join(xdgCache!, app)
-const config = path.join(xdgConfig!, app)
+const config = Flag.OPENCODE_CONFIG_DIR ?? path.join(xdgConfig!, app)
 const state = path.join(xdgState!, app)
 const tmp = path.join(os.tmpdir(), app)
 
@@ -25,6 +25,7 @@ const paths = {
   cache,
   config,
   state,
+  model: Flag.OPENCODE_MODEL_FILE ?? path.join(state, "model.json"),
   tmp,
 }
 
@@ -50,6 +51,7 @@ export interface Interface {
   readonly cache: string
   readonly config: string
   readonly state: string
+  readonly model: string
   readonly tmp: string
   readonly bin: string
   readonly log: string
@@ -63,6 +65,7 @@ export function make(input: Partial<Interface> = {}): Interface {
     cache: Path.cache,
     config: Flag.OPENCODE_CONFIG_DIR ?? Path.config,
     state: Path.state,
+    model: Path.model,
     tmp: Path.tmp,
     bin: Path.bin,
     log: Path.log,

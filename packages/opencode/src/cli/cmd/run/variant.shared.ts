@@ -3,10 +3,9 @@
 // Variants are provider-specific reasoning effort levels (e.g., "high", "max").
 // Resolution priority: CLI --variant flag > saved preference > session history.
 //
-// The saved variant persists across sessions in ~/.local/state/opencode/model.json
+// The saved variant persists across sessions in the model file (Global.Path.model)
 // so your last-used variant sticks. Cycling (ctrl+t) updates both the active
 // variant and the persisted file.
-import path from "path"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { Context, Effect, Layer } from "effect"
@@ -16,7 +15,7 @@ import { isRecord } from "@/util/record"
 import { createSession, sessionVariant, type RunSession, type SessionMessages } from "./session.shared"
 import type { RunInput, RunProvider } from "./types"
 
-const MODEL_FILE = path.join(Global.Path.state, "model.json")
+const MODEL_FILE = Global.Path.model
 
 type ModelState = Record<string, unknown> & {
   variant?: Record<string, string | undefined>
