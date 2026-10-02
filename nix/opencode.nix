@@ -12,8 +12,24 @@
   installShellFiles,
   versionCheckHook,
   writableTmpDirAsHomeHook,
+  fetchurl,
   node_modules ? callPackage ./node-modules.nix { },
 }:
+let
+  # The compiled binary resolves the Parcel watcher binding at runtime with
+  # `require(<platform package>)`, but the Node modules this derivation builds
+  # from do not include the platform package. Fetch the prebuilt binding and
+  # ship it; the build script's watcher-binding shim honours
+  # OPENCODE_PARCEL_WATCHER_PATH first.
+  parcelWatcherBinding =
+    if stdenvNoCC.hostPlatform.system == "x86_64-linux" then
+      fetchurl {
+        url = "https://registry.npmjs.org/@parcel/watcher-linux-x64-glibc/-/watcher-linux-x64-glibc-2.5.1.tgz";
+        hash = "sha256-2dmtfQHjsXbm9gP5uSRROhYYTsiw3ih4L45lnBE9UKA=";
+      }
+    else
+      null;
+in
 stdenvNoCC.mkDerivation (finalAttrs: {
   pname = "opencode";
   inherit (node_modules) version src;
@@ -65,17 +81,14 @@ stdenvNoCC.mkDerivation (finalAttrs: {
 
     install -Dm755 dist/cli-*/bin/opencode $out/bin/opencode
 
-    # The compiled binary resolves the Parcel watcher binding at runtime with
-    # `require(<platform package>)`, which it cannot find from the store. Ship
-    # the platform package and point the watcher-binding module at it through
-    # OPENCODE_PARCEL_WATCHER_PATH (the build script honours this env first).
-    PARCEL_BINDING=$(find .. -maxdepth 7 -type d -path '*@parcel/watcher-linux-x64-glibc' 2>/dev/null | head -1)
+    # Ship the prebuilt platform Parcel binding and point the watcher-binding
+    # shim at it; the packaged binary cannot resolve the package at runtime.
     WRAP_PARCEL_WATCHER=""
-    if [ -n "$PARCEL_BINDING" ] && [ -d "$PARCEL_BINDING" ]; then
+    ${lib.optionalString (parcelWatcherBinding != null) ''
       mkdir -p $out/lib/parcel-watcher
-      cp -R "$PARCEL_BINDING/." $out/lib/parcel-watcher/
+      tar -xzf ${parcelWatcherBinding} -C $out/lib/parcel-watcher --strip-components=1
       WRAP_PARCEL_WATCHER="--set OPENCODE_PARCEL_WATCHER_PATH $out/lib/parcel-watcher"
-    fi
+    ''}
 
     # OpenTUI dlopens Wayland for clipboard images.
     wrapProgram $out/bin/opencode \
