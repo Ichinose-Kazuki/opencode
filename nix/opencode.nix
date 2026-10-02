@@ -91,7 +91,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     ''}
 
     # OpenTUI dlopens Wayland for clipboard images.
-    wrapProgram $out/bin/opencode \
+    wrapProgram $out/bin/opencode $WRAP_PARCEL_WATCHER \
       --prefix PATH : ${
         lib.makeBinPath (
           [
@@ -102,7 +102,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
         )
       } ${lib.optionalString stdenvNoCC.hostPlatform.isLinux ''
         --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ wayland ]}
-      ''} $WRAP_PARCEL_WATCHER
+      ''}
 
     ln -s opencode $out/bin/opencode2
 
