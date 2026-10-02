@@ -112,7 +112,11 @@ export default { path: file, version: ${JSON.stringify(opencodePty.version)}, sh
     name: "parcel-watcher-binding",
     setup(build) {
       build.onLoad({ filter: /filesystem[/\\]watcher-binding\.ts$/ }, () => ({
-        contents: `export default () => require(${JSON.stringify(parcelWatcherPackage)})`,
+        // A packaged binary cannot resolve the platform binding from
+        // node_modules at runtime, so allow an absolute path override (set by
+        // the sandbox's Nix package next to the shipped binding) before the
+        // bare package specifier.
+        contents: `export default () => require(process.env.OPENCODE_PARCEL_WATCHER_PATH || ${JSON.stringify(parcelWatcherPackage)})`,
         loader: "js",
       }))
     },
