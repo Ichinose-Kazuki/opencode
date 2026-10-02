@@ -65,6 +65,18 @@ stdenvNoCC.mkDerivation (finalAttrs: {
 
     install -Dm755 dist/cli-*/bin/opencode $out/bin/opencode
 
+    # The compiled binary resolves the Parcel watcher binding at runtime with
+    # `require(<platform package>)`, which it cannot find from the store. Ship
+    # the platform package and point the watcher-binding module at it through
+    # OPENCODE_PARCEL_WATCHER_PATH (the build script honours this env first).
+    PARCEL_BINDING=$(find .. -maxdepth 7 -type d -path '*@parcel/watcher-linux-x64-glibc' 2>/dev/null | head -1)
+    WRAP_PARCEL_WATCHER=""
+    if [ -n "$PARCEL_BINDING" ] && [ -d "$PARCEL_BINDING" ]; then
+      mkdir -p $out/lib/parcel-watcher
+      cp -R "$PARCEL_BINDING/." $out/lib/parcel-watcher/
+      WRAP_PARCEL_WATCHER="--set OPENCODE_PARCEL_WATCHER_PATH $out/lib/parcel-watcher"
+    fi
+
     # OpenTUI dlopens Wayland for clipboard images.
     wrapProgram $out/bin/opencode \
       --prefix PATH : ${
@@ -77,7 +89,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
         )
       } ${lib.optionalString stdenvNoCC.hostPlatform.isLinux ''
         --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ wayland ]}
-      ''}
+      ''} $WRAP_PARCEL_WATCHER
 
     ln -s opencode $out/bin/opencode2
 
