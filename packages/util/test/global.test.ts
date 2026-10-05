@@ -15,6 +15,9 @@ describe("global", () => {
       cmd: [process.execPath, "-e", `const { Global } = await import(${JSON.stringify(module)}); void Global.Path.tmp`],
       env: {
         ...process.env,
+        OPENCODE_DATA_HOME: "",
+        OPENCODE_CACHE_HOME: "",
+        OPENCODE_STATE_HOME: "",
         XDG_DATA_HOME: directories[0],
         XDG_CACHE_HOME: directories[1],
         XDG_CONFIG_HOME: directories[2],
@@ -66,6 +69,9 @@ describe("global", () => {
       cwd: path.join(import.meta.dir, ".."),
       env: {
         ...process.env,
+        OPENCODE_DATA_HOME: "",
+        OPENCODE_CACHE_HOME: "",
+        OPENCODE_STATE_HOME: "",
         XDG_DATA_HOME: directories[0],
         XDG_CACHE_HOME: directories[1],
         XDG_CONFIG_HOME: directories[2],
