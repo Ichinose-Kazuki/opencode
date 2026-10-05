@@ -24,6 +24,49 @@ describe("global roots", () => {
     })
   })
 
+  test("prefers OPENCODE overrides over XDG", () => {
+    const root = path.join(os.tmpdir(), "opencode-opencode-overrides")
+    const env = {
+      OPENCODE_DATA_HOME: path.join(root, "opencode-data"),
+      OPENCODE_CACHE_HOME: path.join(root, "opencode-cache"),
+      OPENCODE_STATE_HOME: path.join(root, "opencode-state"),
+      XDG_DATA_HOME: path.join(root, "xdg-data"),
+      XDG_CACHE_HOME: path.join(root, "xdg-cache"),
+      XDG_CONFIG_HOME: path.join(root, "xdg-config"),
+      XDG_STATE_HOME: path.join(root, "xdg-state"),
+    }
+
+    expect(run(env)).toEqual({
+      data: path.join(env.OPENCODE_DATA_HOME, "opencode"),
+      cache: path.join(env.OPENCODE_CACHE_HOME, "opencode"),
+      // Config is rooted by OPENCODE_CONFIG_DIR in global.ts, not here.
+      config: path.join(env.XDG_CONFIG_HOME, "opencode"),
+      state: path.join(env.OPENCODE_STATE_HOME, "opencode"),
+      tmp: path.join(os.tmpdir(), "opencode"),
+    })
+  })
+
+  test("empty OPENCODE overrides fall back to XDG", () => {
+    const root = path.join(os.tmpdir(), "opencode-opencode-empty")
+    const env = {
+      OPENCODE_DATA_HOME: "",
+      OPENCODE_CACHE_HOME: "",
+      OPENCODE_STATE_HOME: "",
+      XDG_DATA_HOME: path.join(root, "data"),
+      XDG_CACHE_HOME: path.join(root, "cache"),
+      XDG_CONFIG_HOME: path.join(root, "config"),
+      XDG_STATE_HOME: path.join(root, "state"),
+    }
+
+    expect(run(env)).toEqual({
+      data: path.join(env.XDG_DATA_HOME, "opencode"),
+      cache: path.join(env.XDG_CACHE_HOME, "opencode"),
+      config: path.join(env.XDG_CONFIG_HOME, "opencode"),
+      state: path.join(env.XDG_STATE_HOME, "opencode"),
+      tmp: path.join(os.tmpdir(), "opencode"),
+    })
+  })
+
   test("empty XDG overrides use home directory defaults", () => {
     const home = path.join(os.tmpdir(), "opencode-xdg-home")
 

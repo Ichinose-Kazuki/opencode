@@ -37,7 +37,9 @@ function fail(message: string) {
 
 /** The default registration file. */
 export function fallback() {
-  return join(process.env["XDG_STATE_HOME"] ?? join(homedir(), ".local", "state"), "opencode", "service.json")
+  const state =
+    process.env["OPENCODE_STATE_HOME"] || process.env["XDG_STATE_HOME"] || join(homedir(), ".local", "state")
+  return join(state, "opencode", "service.json")
 }
 
 /** Whether two registrations describe the same service instance. */
