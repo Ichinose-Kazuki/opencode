@@ -154,7 +154,8 @@ export const stop = Effect.fn("service.stop")(function* (options: StopOptions = 
 })
 
 function fallback() {
-  const state = process.env["XDG_STATE_HOME"] ?? join(homedir(), ".local", "state")
+  const state =
+    process.env["OPENCODE_STATE_HOME"] || process.env["XDG_STATE_HOME"] || join(homedir(), ".local", "state")
   return join(state, "opencode", "service.json")
 }
 
