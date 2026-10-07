@@ -96,4 +96,27 @@ describe("global", () => {
     created.forEach((directory) => expect(fs.statSync(directory).isDirectory()).toBe(true))
     fs.rmSync(root, { recursive: true, force: true })
   })
+
+  test("configDirectory treats OPENCODE_CONFIG_DIR as a config root", () => {
+    const previous = process.env.OPENCODE_CONFIG_DIR
+    const root = path.join(os.tmpdir(), "opencode-config-root")
+    process.env.OPENCODE_CONFIG_DIR = root
+    try {
+      expect(Global.configDirectory()).toBe(path.join(root, "opencode"))
+    } finally {
+      if (previous === undefined) delete process.env.OPENCODE_CONFIG_DIR
+      else process.env.OPENCODE_CONFIG_DIR = previous
+    }
+  })
+
+  test("configDirectory falls back to the XDG config directory", () => {
+    const previous = process.env.OPENCODE_CONFIG_DIR
+    delete process.env.OPENCODE_CONFIG_DIR
+    try {
+      expect(Global.configDirectory()).toBe(Global.Path.config)
+    } finally {
+      if (previous === undefined) delete process.env.OPENCODE_CONFIG_DIR
+      else process.env.OPENCODE_CONFIG_DIR = previous
+    }
+  })
 })

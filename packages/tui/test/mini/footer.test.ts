@@ -370,7 +370,7 @@ test("explicit theme refresh reloads custom colors without a palette event", asy
     await app.mockInput.typeText("draft")
     for (const color of ["#123456", "#abcdef"]) {
       await Bun.write(
-        path.join(tmp.path, "themes", "mini-refresh.json"),
+        path.join(tmp.path, "opencode", "themes", "mini-refresh.json"),
         JSON.stringify({
           base: { ...getOpenCodeTheme().base, text: { ...getOpenCodeTheme().base.text, base: color } },
           dark: { hue: getOpenCodeTheme().dark.hue },

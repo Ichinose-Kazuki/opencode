@@ -58,7 +58,7 @@ const tuiConfig = createTuiResolvedConfig()
 
 async function nativeLightTheme() {
   await using tmp = await tmpdir()
-  await Bun.write(`${tmp.path}/themes/mini-native-light.json`, JSON.stringify({ light: {} }))
+  await Bun.write(`${tmp.path}/opencode/themes/mini-native-light.json`, JSON.stringify({ light: {} }))
   const previous = process.env.OPENCODE_CONFIG_DIR
   process.env.OPENCODE_CONFIG_DIR = tmp.path
   try {

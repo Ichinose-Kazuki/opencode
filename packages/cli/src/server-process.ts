@@ -31,11 +31,7 @@ export const run = Effect.fnUntraced(function* (options: Options) {
   return yield* processEffect(options).pipe(
     Effect.provide(
       LayerNode.compile(LayerNode.group([Global.node, AppProcess.node]), {
-        replacements: [
-          Global.node.replace(
-            Global.layerWith(process.env.OPENCODE_CONFIG_DIR ? { config: process.env.OPENCODE_CONFIG_DIR } : {}),
-          ),
-        ],
+        replacements: [Global.node.replace(Global.layerWith({ config: Global.configDirectory() }))],
       }),
     ),
     Effect.provide(NodeServices.layer),
@@ -110,7 +106,7 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
             fetch: !truthy(process.env.OPENCODE_DISABLE_MODELS_FETCH),
           },
           config: {
-            directory: process.env.OPENCODE_CONFIG_DIR,
+            directory: global.config,
             project: !truthy(
               process.env.OPENCODE_CONFIG_PROJECT_DISABLE ?? process.env.OPENCODE_DISABLE_PROJECT_CONFIG,
             ),

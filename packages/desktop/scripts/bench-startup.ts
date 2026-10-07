@@ -107,7 +107,7 @@ const env = {
   XDG_CONFIG_HOME: join(home, ".config"),
   XDG_CACHE_HOME: join(home, ".cache"),
   OPENCODE_DB: paths.db,
-  OPENCODE_CONFIG_DIR: paths.config,
+  OPENCODE_CONFIG_DIR: join(home, ".config"),
   // Beta and prod builds check for updates on start; a closed proxy port fails that fast and offline.
   ...(args.values.offline || appId !== "ai.opencode.desktop.dev" ? { HTTPS_PROXY: "http://127.0.0.1:9" } : {}),
 }

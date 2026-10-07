@@ -225,7 +225,7 @@ test.each(["light", "dark"] as const)(
       base: tokens,
       [mode]: { hue },
     }
-    await Bun.write(path.join(tmp.path, "themes", "mini-custom.json"), JSON.stringify(source))
+    await Bun.write(path.join(tmp.path, "opencode", "themes", "mini-custom.json"), JSON.stringify(source))
     const theme = await resolveRunTheme(renderer({ colors: terminalColors({}, mode) }), { name: "mini-custom", mode })
     try {
       expectFooter(theme, resolveThemeDocument(parseTheme(source), mode))
@@ -244,7 +244,7 @@ test.each(["light", "dark"] as const)(
       { [mode]: { text: { base: "$missing" } } },
       undefined,
     ]) {
-      if (source) await Bun.write(path.join(tmp.path, "themes", "mini-invalid.json"), JSON.stringify(source))
+      if (source) await Bun.write(path.join(tmp.path, "opencode", "themes", "mini-invalid.json"), JSON.stringify(source))
       const theme = await resolveRunTheme(renderer({ colors: terminalColors({}, mode) }), {
         name: source ? "mini-invalid" : "mini-unknown",
         mode,
@@ -282,7 +282,7 @@ test.each(["light", "dark"] as const)(
     const definition = { ...base, text: { ...base.text, base: "#123456" } }
     const { hue, ...tokens } = definition
     const source = { base: tokens, [mode]: { hue } }
-    await Bun.write(path.join(tmp.path, "themes", "mini-one-mode.json"), JSON.stringify(source))
+    await Bun.write(path.join(tmp.path, "opencode", "themes", "mini-one-mode.json"), JSON.stringify(source))
     for (const requested of ["light", "dark"] as const) {
       const theme = await resolveRunTheme(renderer({ colors: terminalColors({}, requested) }), {
         name: "mini-one-mode",
