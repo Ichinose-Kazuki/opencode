@@ -1,0 +1,114 @@
+diff --git a/chunk-bun-6qjat6qa.js b/chunk-bun-6qjat6qa.js
+index f19fdea..26ec557 100644
+--- a/chunk-bun-6qjat6qa.js
++++ b/chunk-bun-6qjat6qa.js
+@@ -23327,10 +23327,13 @@ Captured external output:
+     this.lastOverRenderableNum = maybeRenderableId;
+     const maybeRenderable = Renderable2.renderablesByNumber.get(maybeRenderableId);
+     if (mouseEvent.type === "down" && mouseEvent.button === 0 /* LEFT */ && !this.currentSelection?.isDragging && !mouseEvent.modifiers.ctrl) {
+-      const canStartSelection = Boolean(maybeRenderable && maybeRenderable.selectable && !maybeRenderable.isDestroyed && maybeRenderable.shouldStartSelection(mouseEvent.x, mouseEvent.y));
+-      if (canStartSelection && maybeRenderable) {
+-        this.startSelection(maybeRenderable, mouseEvent.x, mouseEvent.y, this.nextClickBehavior(maybeRenderable, mouseEvent.x, mouseEvent.y));
+-        this.dispatchMouseEvent(maybeRenderable, mouseEvent);
++      const hitRenderable = maybeRenderable && !maybeRenderable.isDestroyed ? maybeRenderable : null;
++      const canStartSelection = hitRenderable && hitRenderable.selectable && hitRenderable.shouldStartSelection(mouseEvent.x, mouseEvent.y);
++      const anchorRenderable = canStartSelection ? hitRenderable : findSelectableDescendant(hitRenderable, mouseEvent.x, mouseEvent.y);
++      if (anchorRenderable) {
++        this.startSelection(anchorRenderable, mouseEvent.x, mouseEvent.y, this.nextClickBehavior(hitRenderable ?? anchorRenderable, mouseEvent.x, mouseEvent.y));
++        if (hitRenderable)
++          this.dispatchMouseEvent(hitRenderable, mouseEvent);
+         return true;
+       }
+     }
+@@ -24885,3 +24888,34 @@ export { isValidBorderStyle2, parseBorderStyle2, BorderChars2, getBorderFromSide
+ 
+ //# debugId=2C6E8DFDB736749564756E2164756E21
+ //# sourceMappingURL=chunk-bun-6qjat6qa.js.map
++
++
++// Selection can begin from a container's blank margin: when the pressed cell
++// belongs to a non-selectable renderable, anchor the selection on the nearest
++// selectable descendant in the same row so a drag that starts in the gutter
++// still selects the text it crosses.
++function findSelectableDescendant(renderable, x, y) {
++  if (!renderable)
++    return null;
++  let best = null;
++  let bestDistance = Infinity;
++  const visit = (node) => {
++    for (const child of node.getChildren()) {
++      if (child.isDestroyed)
++        continue;
++      if (child.selectable && child.y <= y && y < child.y + child.height) {
++        const left = child.x;
++        const right = child.x + child.width;
++        const distance = x < left ? left - x : x >= right ? x - (right - 1) : 0;
++        if (distance < bestDistance) {
++          bestDistance = distance;
++          best = child;
++        }
++      }
++      if (child.getChildrenCount() > 0)
++        visit(child);
++    }
++  };
++  visit(renderable);
++  return best;
++}
+diff --git a/chunk-node-2rg7pskw.js b/chunk-node-2rg7pskw.js
+index f2b7765..816a796 100644
+--- a/chunk-node-2rg7pskw.js
++++ b/chunk-node-2rg7pskw.js
+@@ -23326,10 +23326,13 @@ Captured external output:
+     this.lastOverRenderableNum = maybeRenderableId;
+     const maybeRenderable = Renderable2.renderablesByNumber.get(maybeRenderableId);
+     if (mouseEvent.type === "down" && mouseEvent.button === 0 /* LEFT */ && !this.currentSelection?.isDragging && !mouseEvent.modifiers.ctrl) {
+-      const canStartSelection = Boolean(maybeRenderable && maybeRenderable.selectable && !maybeRenderable.isDestroyed && maybeRenderable.shouldStartSelection(mouseEvent.x, mouseEvent.y));
+-      if (canStartSelection && maybeRenderable) {
+-        this.startSelection(maybeRenderable, mouseEvent.x, mouseEvent.y, this.nextClickBehavior(maybeRenderable, mouseEvent.x, mouseEvent.y));
+-        this.dispatchMouseEvent(maybeRenderable, mouseEvent);
++      const hitRenderable = maybeRenderable && !maybeRenderable.isDestroyed ? maybeRenderable : null;
++      const canStartSelection = hitRenderable && hitRenderable.selectable && hitRenderable.shouldStartSelection(mouseEvent.x, mouseEvent.y);
++      const anchorRenderable = canStartSelection ? hitRenderable : findSelectableDescendant(hitRenderable, mouseEvent.x, mouseEvent.y);
++      if (anchorRenderable) {
++        this.startSelection(anchorRenderable, mouseEvent.x, mouseEvent.y, this.nextClickBehavior(hitRenderable ?? anchorRenderable, mouseEvent.x, mouseEvent.y));
++        if (hitRenderable)
++          this.dispatchMouseEvent(hitRenderable, mouseEvent);
+         return true;
+       }
+     }
+@@ -24884,3 +24887,34 @@ export { isValidBorderStyle2, parseBorderStyle2, BorderChars2, getBorderFromSide
+ 
+ //# debugId=BDA74430A2417B1764756E2164756E21
+ //# sourceMappingURL=chunk-node-2rg7pskw.js.map
++
++
++// Selection can begin from a container's blank margin: when the pressed cell
++// belongs to a non-selectable renderable, anchor the selection on the nearest
++// selectable descendant in the same row so a drag that starts in the gutter
++// still selects the text it crosses.
++function findSelectableDescendant(renderable, x, y) {
++  if (!renderable)
++    return null;
++  let best = null;
++  let bestDistance = Infinity;
++  const visit = (node) => {
++    for (const child of node.getChildren()) {
++      if (child.isDestroyed)
++        continue;
++      if (child.selectable && child.y <= y && y < child.y + child.height) {
++        const left = child.x;
++        const right = child.x + child.width;
++        const distance = x < left ? left - x : x >= right ? x - (right - 1) : 0;
++        if (distance < bestDistance) {
++          bestDistance = distance;
++          best = child;
++        }
++      }
++      if (child.getChildrenCount() > 0)
++        visit(child);
++    }
++  };
++  visit(renderable);
++  return best;
++}
