@@ -453,6 +453,49 @@ describe("SubagentTool", () => {
     ),
   )
 
+  it.live("forks the current session when fork is requested", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const location = Location.Ref.make({ directory: AbsolutePath.make(dir.path) })
+          const sessions = yield* Session.Service
+          const bus = yield* Bus.Service
+          const { db } = yield* Database.Service
+          const parent = yield* sessions.create({ location, model: parentModel })
+          yield* withSubagent(parent.location)
+          yield* sessions.prompt({ sessionID: parent.id, text: "discuss the feature", resume: false })
+          yield* SessionInbox.promote(db, bus, parent.id, "steer")
+          const locations = yield* LocationServiceMap.Service
+          const registry = yield* Tool.Service.pipe(Effect.provide(locations.get(parent.location)))
+
+          const settled = yield* executeTool(registry, {
+            sessionID: parent.id,
+            ...toolIdentity,
+            call: {
+              type: "tool-call",
+              id: "call-subagent-fork",
+              name: SubagentTool.name,
+              input: { agent: "reviewer", description: "implement", prompt: "implement it", fork: true },
+            },
+          })
+
+          expect(settled.status).toBe("completed")
+          const child = yield* sessions.get(outputSessionID(settled.metadata))
+          expect(child).toMatchObject({
+            parentID: parent.id,
+            agent: "reviewer",
+            model: childModel,
+            fork: { sessionID: parent.id },
+          })
+          expect((yield* sessions.context(child.id)).some((message) => message.type === "user")).toBe(true)
+        }),
+      ),
+    ),
+  )
+
   it.live("continues an existing child session", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
