@@ -45,6 +45,10 @@ export const Input = Schema.Struct({
     description:
       "Run the subagent in the background and return immediately. You will be notified when it completes. DO NOT sleep, poll, or proactively check on its progress.",
   }),
+  fork: Schema.optionalKey(Schema.Boolean).annotate({
+    description:
+      "Start the subagent from a copy of the current session's history instead of a fresh child session. Only applies when sessionID is omitted.",
+  }),
 })
 
 export const Output = Schema.Struct({
@@ -56,6 +60,7 @@ export const description = [
   "Spawns an agent in a child session to work on the specified task.",
   "The output includes a sessionID you can pass back later to continue that specific conversation with the subagent.",
   "New child sessions start with fresh context, so include all relevant context and instructions when you don't pass a sessionID.",
+  "Set fork=true to start the subagent from a copy of the current session's history instead of a fresh child, so it begins with the existing conversation already in context.",
   "Foreground (default) runs the subagent to completion and returns its final response.",
   "Background mode (background=true) launches it asynchronously and returns immediately; you are notified when it finishes.",
   "Use background only for independent work that can run while you continue elsewhere.",
@@ -165,6 +170,10 @@ export const Plugin = {
                 return yield* new ToolFailure({
                   message: `Session ${existing.id} is not a child of the current session`,
                 })
+              if (input.fork === true && existing !== undefined)
+                return yield* new ToolFailure({
+                  message: "Cannot combine fork with sessionID; omit one.",
+                })
               const override = input.model === undefined ? undefined : yield* resolveModel(input.model)
               // Continuing with a different agent switches the child, mirroring create semantics
               // where an explicit model wins over the agent's configured model, which wins over the inherited one.
@@ -182,8 +191,30 @@ export const Plugin = {
               }
 
               const model = override ?? agent.model ?? parent.model
+              const forked =
+                input.fork === true && existing === undefined
+                  ? yield* sessions
+                      .fork({ sessionID: context.sessionID, asChild: true })
+                      .pipe(
+                        Effect.mapError(
+                          (error) =>
+                            new ToolFailure({ message: `Failed to fork session: ${context.sessionID}`, error }),
+                        ),
+                      )
+                  : undefined
+              // A fork inherits the source agent and model, so adopt the requested selection explicitly.
+              if (forked !== undefined)
+                yield* Effect.all([
+                  sessions.switchAgent({ sessionID: forked.id, agent: agent.id }),
+                  model === undefined ? Effect.void : sessions.switchModel({ sessionID: forked.id, model }),
+                ]).pipe(
+                  Effect.mapError(
+                    (error) => new ToolFailure({ message: `Failed to switch subagent session: ${forked.id}`, error }),
+                  ),
+                )
               const child =
                 existing ??
+                forked ??
                 (yield* sessions
                   .create({
                     parentID: context.sessionID,
