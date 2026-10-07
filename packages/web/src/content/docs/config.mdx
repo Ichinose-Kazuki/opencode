@@ -135,15 +135,16 @@ Custom config is loaded between global and project configs in the precedence ord
 
 ---
 
-### Custom directory
+### Custom root
 
-Specify a custom config directory using the `OPENCODE_CONFIG_DIR`
-environment variable. This directory will be searched for agents, commands,
-modes, and plugins just like the standard `.opencode` directory, and should
-follow the same structure.
+Specify a custom config root using the `OPENCODE_CONFIG_DIR` environment
+variable. opencode's config directory is that root joined with `opencode` — the
+layout `$XDG_CONFIG_HOME` produces — and is searched for agents, commands,
+modes, and plugins just like the standard `.opencode` directory.
 
 ```bash
-export OPENCODE_CONFIG_DIR=/path/to/my/config-directory
+export OPENCODE_CONFIG_DIR=/path/to/my/config
+# opencode reads /path/to/my/config/opencode
 opencode run "Hello world"
 ```
 

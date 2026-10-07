@@ -28,6 +28,14 @@ const paths = {
 
 export const Path = paths
 
+// OPENCODE_CONFIG_DIR names a config root the way XDG_CONFIG_HOME does, so
+// opencode's own directory is that root joined with the application name.
+// Without it the config directory comes from the XDG/home roots.
+export function configDirectory() {
+  const root = process.env.OPENCODE_CONFIG_DIR
+  return root ? path.join(root, app) : Path.config
+}
+
 Flock.setGlobal({ state })
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Global") {}
@@ -76,7 +84,7 @@ const acquire = (input: Partial<Interface>) =>
 
 const layer = Layer.effect(
   Service,
-  Effect.suspend(() => acquire({ config: process.env.OPENCODE_CONFIG_DIR ?? Path.config })),
+  Effect.suspend(() => acquire({ config: configDirectory() })),
 )
 
 export const node = makeGlobalNode({ service: Service, layer: layer, deps: [] })
