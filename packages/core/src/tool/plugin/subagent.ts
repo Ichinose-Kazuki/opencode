@@ -47,7 +47,7 @@ export const Input = Schema.Struct({
   }),
   fork: Schema.optionalKey(Schema.Boolean).annotate({
     description:
-      "Start the subagent from a copy of the current session's history instead of a fresh child session. Only applies when sessionID is omitted.",
+      "Start the subagent from a copy of the current session's history instead of a fresh child session. Cannot be combined with sessionID.",
   }),
 })
 
