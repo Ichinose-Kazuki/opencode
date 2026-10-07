@@ -196,6 +196,7 @@ export const Forked = Event.durable({
     boundary: SessionFork.Boundary,
     instructions: Instruction.Values.pipe(optional),
     instructionEntries: InstructionEntry.Snapshot.pipe(optional),
+    asChild: Schema.Boolean.pipe(optional),
   },
 })
 export type Forked = typeof Forked.Type

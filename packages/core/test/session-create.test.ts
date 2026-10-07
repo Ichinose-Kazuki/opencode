@@ -624,6 +624,25 @@ describe("Session.create", () => {
     }),
   )
 
+  it.effect("registers a fork as a child of its source when requested", () =>
+    Effect.gen(function* () {
+      const session = yield* Session.Service
+      const bus = yield* Bus.Service
+      const { db } = yield* Database.Service
+      const parent = yield* session.create({ location })
+      yield* session.prompt({ sessionID: parent.id, text: "First", resume: false })
+      yield* SessionInbox.promote(db, bus, parent.id, "steer")
+
+      const forked = yield* session.fork({ sessionID: parent.id, asChild: true })
+      const row = yield* db.select().from(SessionTable).where(eq(SessionTable.id, forked.id)).get().pipe(Effect.orDie)
+
+      expect(forked.parentID).toBe(parent.id)
+      expect(forked.fork).toMatchObject({ sessionID: parent.id })
+      expect(row?.parent_id).toBe(parent.id)
+      expect((yield* session.list({ parentID: parent.id })).data.map((entry) => entry.id)).toContain(forked.id)
+    }),
+  )
+
   it.effect("replays a fork with stable projected identities", () =>
     Effect.gen(function* () {
       const session = yield* Session.Service
