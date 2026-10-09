@@ -40,8 +40,8 @@ For questions about the terminal interface, command-line invocation, `run`,
 that section.
 
 CLI and TUI preferences are separate from OpenCode's server and project
-configuration. They live in the global `~/.config/opencode/cli.json`, or
-`$XDG_CONFIG_HOME/opencode/cli.json` when `XDG_CONFIG_HOME` is set. There is no
+configuration. They live in the global `~/.local/state/opencode/cli.json`, or
+`$XDG_STATE_HOME/opencode/cli.json` when `XDG_STATE_HOME` is set. There is no
 project-local CLI configuration. Set `OPENCODE_CLI_CONFIG_CONTENT` to merge
 inline JSON over the global settings. Most preferences can also be changed from
 the TUI by pressing `Ctrl+P` and selecting **Open settings**.
