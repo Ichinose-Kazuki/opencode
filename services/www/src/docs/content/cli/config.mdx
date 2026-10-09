@@ -15,13 +15,13 @@ Press `Ctrl+P`, then select **Open settings** to change common settings from the
 OpenCode stores CLI settings in one global file:
 
 ```text
-~/.config/opencode/cli.json
+~/.local/state/opencode/cli.json
 ```
 
-When `$XDG_CONFIG_HOME` is set, OpenCode uses:
+When `$XDG_STATE_HOME` is set, OpenCode uses:
 
 ```text
-$XDG_CONFIG_HOME/opencode/cli.json
+$XDG_STATE_HOME/opencode/cli.json
 ```
 
 There is no project-local CLI settings file. Add the published JSON Schema for validation and autocomplete:
