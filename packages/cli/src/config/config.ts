@@ -28,7 +28,10 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const global = yield* Global.Service
-    const file = path.join(global.config, "cli.json")
+    // The terminal client owns cli.json and rewrites it as preferences change,
+    // so it lives under the state root rather than the config root. A host can
+    // then ship the config directory read-only and still let the TUI persist.
+    const file = path.join(global.state, "cli.json")
     const content = process.env.OPENCODE_CLI_CONFIG_CONTENT
       ? Option.getOrUndefined(decode(parseRecord(process.env.OPENCODE_CLI_CONFIG_CONTENT)))
       : undefined

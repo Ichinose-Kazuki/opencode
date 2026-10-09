@@ -12,9 +12,9 @@ test("mini handler passes resolved CLI keybinds to the runtime", async () => {
   const root = await Bun.$`mktemp -d`.text().then((value) => value.trim())
   const configDirectory = path.join(root, "config")
   const stateDirectory = path.join(root, "state")
-  await mkdir(configDirectory, { recursive: true })
+  await mkdir(stateDirectory, { recursive: true })
   await Bun.write(
-    path.join(configDirectory, "cli.json"),
+    path.join(stateDirectory, "cli.json"),
     JSON.stringify({
       keybinds: { "composer.subagent.interrupt": "ctrl+i" },
       leader: { timeout: 321 },
