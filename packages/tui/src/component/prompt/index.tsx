@@ -133,10 +133,14 @@ export function PromptInterruptStatus(props: {
     if (level === 0 || !props.flash) return props.warning
     return tint(props.warning, props.flash, level)
   })
+  // Show the key the session-interrupt command is actually bound to, so the
+  // hint tracks a remapped binding instead of assuming the default escape.
+  const shortcut = Keymap.useShortcuts().get("session.interrupt")
+  const keyLabel = shortcut === undefined ? "esc" : shortcut === "escape" ? "esc" : shortcut
 
   return (
     <text fg={props.armed ? armedColor() : props.text} wrapMode="none" truncate flexShrink={1}>
-      esc{" "}
+      {keyLabel}{" "}
       <span style={{ fg: props.armed ? armedColor() : props.subdued }}>
         {props.armed ? "again to interrupt" : "interrupt"}
       </span>
