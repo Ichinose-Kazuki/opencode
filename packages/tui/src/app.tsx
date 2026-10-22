@@ -241,7 +241,11 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
     Effect.gen(function* () {
       const options = {
         externalOutputMode: "passthrough",
-        targetFps: 60,
+        // Every frame lays out the whole scene, so a spinner tick in a long
+        // transcript costs as much as a full redraw. 30 fps halves that cost;
+        // maxFps caps the on-demand frames that animations request.
+        targetFps: 30,
+        maxFps: 30,
         gatherStats: false,
         exitOnCtrlC: false,
         useKittyKeyboard: {},
