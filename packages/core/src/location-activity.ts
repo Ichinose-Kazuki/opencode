@@ -22,7 +22,8 @@ export function layer(options: { readonly timeToLive?: Duration.Input; readonly 
       const locations = yield* LocationServiceMap.Service
       const execution = yield* SessionExecution.Service
       const sessions = yield* SessionStore.Service
-      const timeToLive = Duration.toMillis(options.timeToLive ?? "60 minutes")
+      // Locations live until explicitly invalidated unless a caller opts in to inactivity eviction.
+      const timeToLive = Duration.toMillis(options.timeToLive ?? Duration.infinity)
       const entries = new Map<string, { readonly ref: Location.Ref; expiresAt: number }>()
       const key = (ref: Location.Ref) => `${LocationServiceMap.canonical(ref).directory}\0${ref.workspaceID ?? ""}`
       const touch = (ref: Location.Ref) =>
