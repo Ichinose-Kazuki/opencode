@@ -25,7 +25,9 @@ import { TestClock } from "effect/testing"
 import { Agent } from "@opencode/core/agent"
 import { AppNodeBuilder } from "@opencode/core/effect/app-node-builder"
 import { LayerNode } from "@opencode/util/effect/layer-node"
+import { makeGlobalNode } from "@opencode/util/effect/app-node"
 import { Global } from "@opencode/util/global"
+import { Job } from "@opencode/core/job"
 import { LocationServiceMap, type LocationServices } from "@opencode/core/location-services"
 import { LocationActivity } from "@opencode/core/location-activity"
 import { Location } from "@opencode/core/location"
@@ -37,6 +39,8 @@ import { Project } from "@opencode/core/project"
 import { Provider } from "@opencode/core/provider"
 import { AbsolutePath } from "@opencode/core/schema"
 import { Session } from "@opencode/core/session"
+import { SessionExecution } from "@opencode/core/session/execution"
+import { SessionStore } from "@opencode/core/session/store"
 import { Workspace } from "@opencode/core/workspace"
 import { SessionEvent } from "@opencode/core/session/event"
 import { SessionRunnerModel } from "@opencode/core/session/runner/model"
@@ -79,6 +83,14 @@ const activityLocations = Layer.effect(
 const itWithActivity = testEffect(
   AppNodeBuilder.build(LayerNode.group([Database.node, Bus.node, LocationServiceMap.node, LocationActivity.node]), [
     LocationServiceMap.node.replace(activityLocations),
+    // Lifetime assertions below pin the inactivity window instead of using the production default.
+    LocationActivity.node.replace(
+      makeGlobalNode({
+        service: LocationActivity.Service,
+        layer: LocationActivity.layer({ timeToLive: "60 minutes" }),
+        deps: [Bus.node, Job.node, LocationServiceMap.node, SessionExecution.node, SessionStore.node],
+      }),
+    ),
   ]),
 )
 

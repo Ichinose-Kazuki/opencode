@@ -119,6 +119,15 @@ const it = testEffect(
           deps: [Bus.node],
         }),
       ),
+      // These tests drive the inactivity eviction mechanism, so they pin the
+      // lifetime they assert rather than depending on the production default.
+      LocationActivity.node.replace(
+        makeGlobalNode({
+          service: LocationActivity.Service,
+          layer: LocationActivity.layer({ timeToLive: "60 minutes" }),
+          deps: [Bus.node, Job.node, LocationServiceMap.node, SessionExecution.node, SessionStore.node],
+        }),
+      ),
     ],
   ),
 )
