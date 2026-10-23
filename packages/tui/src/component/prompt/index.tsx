@@ -9,7 +9,19 @@ import {
   stripAnsiSequences,
   type KeyEvent,
 } from "@opentui/core"
-import { createEffect, createMemo, onMount, createSignal, onCleanup, on, Show, Switch, Match, For } from "solid-js"
+import {
+  createEffect,
+  createMemo,
+  onMount,
+  createSignal,
+  onCleanup,
+  on,
+  untrack,
+  Show,
+  Switch,
+  Match,
+  For,
+} from "solid-js"
 import path from "path"
 import { useLocal } from "../../context/local"
 import { useTheme, useThemes } from "../../context/theme"
@@ -315,7 +327,12 @@ export function Prompt(props: PromptProps) {
       },
     ],
   }))
-  const [cursorVersion, setCursorVersion] = createSignal(0)
+  // Gates that change on every keystroke are callbacks the keymap evaluates on
+  // demand. A boolean gate would re-register its layer on each keystroke, and
+  // every registration rebuilds all of the keymap's derived command and
+  // shortcut lists. untrack keeps the selectors that evaluate the callbacks
+  // from subscribing to the prompt text and recomputing on each keystroke.
+  const liveGate = (ready: boolean, live: () => boolean) => (ready ? () => untrack(live) : false)
   const connected = useConnected()
 
   function promptModelWarning() {
@@ -887,7 +904,7 @@ export function Prompt(props: PromptProps) {
         title: "Stash prompt",
         name: "prompt.stash",
         category: "Prompt",
-        enabled: !!store.prompt.text,
+        enabled: () => untrack(() => !!store.prompt.text),
         run: () => {
           if (!store.prompt.text) return
           stash.push({ prompt: store.prompt })
@@ -958,7 +975,7 @@ export function Prompt(props: PromptProps) {
   Keymap.createLayer(() => {
     return {
       target: inputTarget,
-      enabled: inputTarget() !== undefined && !disabled() && store.prompt.text !== "",
+      enabled: liveGate(inputTarget() !== undefined && !disabled(), () => store.prompt.text !== ""),
       bindings: ["prompt.clear"],
     }
   })
@@ -966,16 +983,10 @@ export function Prompt(props: PromptProps) {
   Keymap.createLayer(() => {
     return {
       target: inputTarget,
-      enabled: (() => {
-        cursorVersion()
-        return (
-          inputTarget() !== undefined &&
-          !disabled() &&
-          store.mode === "normal" &&
-          !auto()?.visible &&
-          input?.visualCursor.offset === 0
-        )
-      })(),
+      enabled: liveGate(
+        inputTarget() !== undefined && !disabled() && store.mode === "normal",
+        () => !auto()?.visible && input?.visualCursor.offset === 0,
+      ),
       commands: [
         {
           bind: "!",
@@ -1011,10 +1022,10 @@ export function Prompt(props: PromptProps) {
   Keymap.createLayer(() => {
     return {
       target: inputTarget,
-      enabled: (() => {
-        cursorVersion()
-        return inputTarget() !== undefined && !disabled() && store.mode === "shell" && input?.visualCursor.offset === 0
-      })(),
+      enabled: liveGate(
+        inputTarget() !== undefined && !disabled() && store.mode === "shell",
+        () => input?.visualCursor.offset === 0,
+      ),
       commands: [
         { bind: "backspace", title: "Exit shell mode", group: "Prompt", run: () => setStore("mode", "normal") },
       ],
@@ -1025,10 +1036,7 @@ export function Prompt(props: PromptProps) {
     return {
       priority: 1,
       target: inputTarget,
-      enabled: (() => {
-        cursorVersion()
-        return inputTarget() !== undefined && !disabled() && !auto()?.visible && input !== undefined
-      })(),
+      enabled: liveGate(inputTarget() !== undefined && !disabled(), () => !auto()?.visible && input !== undefined),
       commands: [
         {
           id: "prompt.history.previous",
@@ -1061,10 +1069,7 @@ export function Prompt(props: PromptProps) {
     return {
       priority: 1,
       target: inputTarget,
-      enabled: (() => {
-        cursorVersion()
-        return inputTarget() !== undefined && !disabled() && !auto()?.visible && input !== undefined
-      })(),
+      enabled: liveGate(inputTarget() !== undefined && !disabled(), () => !auto()?.visible && input !== undefined),
       commands: [
         {
           id: "prompt.history.next",
@@ -1767,9 +1772,7 @@ export function Prompt(props: PromptProps) {
                 setStore("prompt", "text", value)
                 auto()?.onInput(value)
                 syncExtmarksWithPromptParts()
-                setCursorVersion((value) => value + 1)
               }}
-              onCursorChange={() => setCursorVersion((value) => value + 1)}
               onKeyDown={(e: { preventDefault(): void }) => {
                 if (disabled()) {
                   e.preventDefault()

@@ -1387,6 +1387,20 @@ test("ctrl+c dismisses autocomplete and shell mode before exiting", async () => 
   expect(setup.renderer.isDestroyed).toBe(false)
 })
 
+test("! enters shell mode only with the cursor at the start of the prompt", async () => {
+  await using setup = await createAppFixture()
+  await setup.ready
+  await setup.waitForFrame((frame) => frame.includes("commands"))
+
+  await setup.mockInput.typeText("ab!")
+  await setup.waitForFrame((frame) => frame.includes("ab!"))
+  await setup.waitForFrame((frame) => !frame.includes("Shell"))
+
+  for (let i = 0; i < 3; i++) setup.mockInput.pressBackspace()
+  await setup.waitForFrame((frame) => frame.includes("Ask anything"))
+  await setup.mockInput.typeText("!")
+  await setup.waitForFrame((frame) => frame.includes("Shell"))
+})
 test.skipIf(process.platform === "win32").each(["manual", "select"] as const)(
   "selection copy and pane management respect %s mode in the prompt and terminal pane",
     async (copy) => {
