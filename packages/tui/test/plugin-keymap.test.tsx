@@ -1,8 +1,10 @@
+import type { PluginInfo } from "@opencode/client"
 import { InputRenderable } from "@opentui/core"
 import { beforeEach, expect, test } from "bun:test"
 import { takeDraft } from "../src/component/prompt/draft-stash"
 import { createAppFixture } from "./fixture/app"
 import { copyPlugin } from "./fixture/fixture"
+import { directory, json } from "./fixture/tui-client"
 
 type Fixture = Awaited<ReturnType<typeof createAppFixture>>
 
@@ -81,7 +83,18 @@ test("a component layer ends when its component unmounts while the plugin stays 
 
 test("a component layer ends with its activation on reload while the component stays mounted", async () => {
   await using plugin = await copyPlugin("setup-keymap")
-  await using setup = await createAppFixture({ config: { animations: false, plugins: [plugin.directory] } })
+  // A changed server plugin inventory reconciles without closing dialogs, unlike /reload.
+  let inventory: PluginInfo[] = []
+  await using setup = await createAppFixture({
+    config: { animations: false, plugins: [plugin.directory] },
+    fetch: (url) => {
+      if (url.pathname !== "/api/plugin") return undefined
+      return json({
+        location: { directory, project: { id: "proj_test", directory, canonical: directory } },
+        data: inventory,
+      })
+    },
+  })
   await setup.ready
   await setup.waitForFrame((frame) => frame.includes("Fixture ready generation 1"))
 
@@ -91,6 +104,15 @@ test("a component layer ends with its activation on reload while the component s
   await setup.waitForFrame((frame) => frame.includes("Dialog keymap ran 1"))
 
   await Bun.write(plugin.entry, (await Bun.file(plugin.entry).text()).replace("generation 1", "generation 2"))
+  inventory = [
+    {
+      id: "fixture.setup-keymap",
+      source: { type: "local", path: plugin.entry },
+      features: { tui: true },
+      state: { status: "active" },
+    },
+  ]
+  setup.events.emit({ id: "evt_inventory", created: 1, type: "plugin.updated", data: {} })
   await setup.waitForFrame((frame) => frame.includes("Fixture ready generation 2"))
   setup.mockInput.pressKey("g", { ctrl: true })
   await setup.waitForFrame((frame) => frame.includes("Setup keymap ran 1"))
@@ -100,6 +122,30 @@ test("a component layer ends with its activation on reload while the component s
   expect(setup.captureCharFrame()).toContain("Setup keymap ran 1")
   expect(setup.captureCharFrame()).toContain("Fixture dialog")
   expect(setup.captureCharFrame()).not.toContain("Dialog keymap ran 2")
+})
+
+test("an edited local plugin loads on /reload, not on save", async () => {
+  await using plugin = await copyPlugin("setup-keymap")
+  await using setup = await createAppFixture({ config: { animations: false, plugins: [plugin.directory] } })
+  await setup.ready
+  await setup.waitForFrame((frame) => frame.includes("Fixture ready generation 1"))
+
+  await Bun.write(
+    plugin.entry,
+    (await Bun.file(plugin.entry).text()).replace("<text>Fixture dialog</text>", "<text>Fixture dialog v2</text>"),
+  )
+  await Bun.sleep(300)
+  setup.mockInput.pressKey("F8")
+  await setup.waitForFrame((frame) => frame.includes("Fixture dialog"))
+  expect(setup.captureCharFrame()).not.toContain("Fixture dialog v2")
+  setup.mockInput.pressEscape()
+
+  await setup.mockInput.typeText("/reload")
+  await setup.waitForFrame((frame) => frame.includes("/reload"))
+  setup.mockInput.pressEnter()
+  await setup.waitForFrame((frame) => frame.includes("Configuration reloaded"))
+  setup.mockInput.pressKey("F8")
+  await setup.waitForFrame((frame) => frame.includes("Fixture dialog v2"))
 })
 
 test("failed setup reports batched layer errors and disposes earlier and later setup layers", async () => {

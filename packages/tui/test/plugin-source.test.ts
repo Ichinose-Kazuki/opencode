@@ -6,7 +6,6 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { Host } from "@opencode/plugin/host"
 import "../src/plugin/runtime-plugin-support.bun"
 import { createPluginSources } from "../src/plugin/source"
-import { createSourceWatcher } from "../src/plugin/watch"
 import { createSignal } from "solid-js"
 import { Effect, Option, Schema } from "effect"
 import { Plugin } from "@opencode/plugin/tui"
@@ -91,27 +90,14 @@ test("renamed exports, failed loads, and new dependencies recover without cached
   expect((await sources.read(entry.href)).module).toMatchObject({ default: 3 })
 })
 
-test("a missing package dependency reloads when it is installed", async () => {
-  let changes = 0
-  const watcher = createSourceWatcher(() => {
-    changes++
-  })
-  using _watcher = { [Symbol.dispose]: watcher.dispose }
-  await using sources = await fixture(watcher.wait)
+test("a missing package dependency loads on the next read once it is installed", async () => {
+  await using sources = await fixture()
   const entry = new URL("tui.ts", sources.url)
   await Bun.write(entry, 'export { default } from "example"')
   await expect(sources.read(entry.href)).rejects.toThrow("example")
 
-  const count = changes
   await Bun.write(new URL("node_modules/example/package.json", sources.url), '{"type":"module","main":"index.js"}')
   await Bun.write(new URL("node_modules/example/index.js", sources.url), 'export default "installed"')
-  const deadline = Date.now() + 3000
-  while (Date.now() < deadline) {
-    if (changes > count) break
-    await Bun.sleep(10)
-  }
-
-  expect(changes).toBeGreaterThan(count)
   expect((await sources.read(entry.href)).module).toMatchObject({ default: "installed" })
 })
 
@@ -281,28 +267,16 @@ test("literal dynamic imports and JSON join the source graph", async () => {
   expect((await sources.read(entry.href)).module).toMatchObject({ default: 2 })
 })
 
-test("real watchers observe atomic saves to nested, outside-root, and symlinked helpers", async () => {
-  let changes = 0
-  const watcher = createSourceWatcher(() => {
-    changes++
-  })
-  using _watcher = { [Symbol.dispose]: watcher.dispose }
-  await using sources = await fixture(watcher.wait)
+test("a re-read observes atomic saves to nested, outside-root, and symlinked helpers", async () => {
+  await using sources = await fixture()
   const entry = new URL("plugin/tui.ts", sources.url)
   const helper = new URL("shared/nested/helper.ts", sources.url)
   await Bun.write(helper, "export const value = 1")
   await Bun.write(entry, 'export { value as default } from "./link"')
   await symlink(fileURLToPath(helper), fileURLToPath(new URL("plugin/link.ts", sources.url)))
   expect((await sources.read(entry.href)).module).toMatchObject({ default: 1 })
-  const count = changes
   await Bun.write(new URL(helper.href + ".new"), "export const value = 2")
   await rename(new URL(helper.href + ".new"), helper)
-  const deadline = Date.now() + 3000
-  while (Date.now() < deadline) {
-    if (changes > count) break
-    await Bun.sleep(10)
-  }
-  expect(changes).toBeGreaterThan(count)
   expect((await sources.read(entry.href)).module).toMatchObject({ default: 2 })
 })
 
@@ -857,7 +831,7 @@ test.each(["ts", "tsx"])("%s wildcard package barrels retain live exports", asyn
   expect(loaded).toMatchObject({ count: 1 })
 })
 
-async function fixture(watch: (file: string) => Promise<void> = async () => {}) {
+async function fixture(watch?: (file: string) => Promise<void>) {
   const dir = await tmpdir()
   const sources = createPluginSources(watch)
   return {

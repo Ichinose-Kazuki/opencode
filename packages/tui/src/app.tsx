@@ -1079,8 +1079,11 @@ function App() {
         run: async () => {
           dialog.clear()
           toast.show({ variant: "info", message: "Reloading configuration…", duration: 30000 })
+          // TUI plugin sources are not watched, so this is also how an edited
+          // or newly added local TUI plugin gets loaded.
           await client.api.location
             .reload()
+            .then(() => plugins.reload())
             .then(() => {
               toast.show({ variant: "success", message: "Configuration reloaded" })
             })

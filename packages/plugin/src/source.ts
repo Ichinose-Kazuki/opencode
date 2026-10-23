@@ -3,9 +3,11 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import path from "node:path"
 import { Hash } from "@opencode/util/hash"
 
-// Keep source fingerprints and import attempts together. Filesystem events
-// should reload changed local graphs, not repeat unchanged evaluations.
-export function createPluginSources(watch: (file: string) => Promise<void>) {
+// Keep source fingerprints and import attempts together. A repeated read (from
+// a filesystem event or a manual reload) should reload changed local graphs,
+// not repeat unchanged evaluations. Without `watch`, the tracked files are only
+// fingerprinted, so changes are picked up on the next explicit read.
+export function createPluginSources(watch?: (file: string) => Promise<void>) {
   const sources = new Map<string, Source>()
   const cleanups: Array<() => void> = []
   const watching = new Set<Promise<void>>()
@@ -20,6 +22,7 @@ export function createPluginSources(watch: (file: string) => Promise<void>) {
       const track = (file: string, directory = false) => {
         if (files.has(file)) return
         files.set(file, { digest: digest(file, directory), directory })
+        if (!watch) return
         const pending = watch(file).finally(() => watching.delete(pending))
         watching.add(pending)
         // Watch setup can be interrupted while module evaluation is still pending.

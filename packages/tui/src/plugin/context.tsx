@@ -28,7 +28,6 @@ import { useClient } from "../context/client"
 import { useData } from "../context/data"
 import { errorMessage } from "../util/error"
 import { createPluginContext, usePluginHost, type Dispose, type RegisteredSlot, type SlotRender } from "./api"
-import { createSourceWatcher } from "./watch"
 import { discoverPluginTargets, localSource, mergePluginTargets } from "./discovery"
 import { createPluginSources } from "./source"
 import { isMissingPath } from "../util/config-directories"
@@ -64,6 +63,8 @@ type Value = {
   readonly markdown: () => MarkdownOptions["renderNode"]
   readonly activate: (id: string) => Promise<boolean>
   readonly deactivate: (id: string) => Promise<boolean>
+  // Re-discovers the plugin directories and reloads changed local sources.
+  readonly reload: () => Promise<void>
 }
 
 type Registration = {
@@ -107,8 +108,8 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
     states: [] as ReadonlyArray<State>,
     registrations: {} as Record<string, Registration>,
   })
-  // One save can emit several watch events. Remember setup failures so those
-  // events do not repeatedly tear down and restore the last good generation.
+  // Remember setup failures so repeated reconciles of an unchanged broken
+  // plugin do not repeatedly tear down and restore the last good generation.
   const setupFailures = new Map<string, { version: string; options: Registration["options"]; error: string }>()
   let operationID = 0
   const trace: Trace = (stage, tags, task) => {
@@ -249,24 +250,9 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
     return result
   }
 
-  // Hot-reload local plugin sources: watch the discovery directory and any
-  // local entrypoints (see watch.ts for the mechanics), debounced into a
-  // serialized reconcile so bursts of events rebuild the generation once.
-  let pending: ReturnType<typeof setTimeout> | undefined
-  const watcher = createSourceWatcher(() => {
-    clearTimeout(pending)
-    pending = setTimeout(() => {
-      // Observe failures immediately: a plugin cleanup that throws would
-      // otherwise surface as an unhandled rejection until the next trigger.
-      void enqueue(reconcile).catch(() => undefined)
-    }, 100)
-  })
-  const stopWatching = () => {
-    clearTimeout(pending)
-    watcher.dispose()
-  }
-  const sources = createPluginSources(watcher.wait)
-  onCleanup(stopWatching)
+  // Local plugin sources are not watched: an edited or newly added plugin is
+  // picked up by the next reconcile, which reload() (the /reload command) runs.
+  const sources = createPluginSources()
 
   // Rebuild the plugin generation as resolve → compare → swap, mirroring the
   // core plugin registry: fold the ordered entries into a desired end state
@@ -275,16 +261,13 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
   // plugins that differ. Membership or order changes rebuild the whole
   // generation to preserve slot-order semantics.
   // Package resolution failures would otherwise retry a full npm install on
-  // every watch event; remember them until the configuration changes.
+  // every reconcile; remember them until the configuration changes.
   const npmFailures = new Map<string, string>()
   let reconciliationID = 0
   const reconcile = async () => {
     const id = ++reconciliationID
     const started = Date.now()
     log.info("plugin reconciliation started", { id })
-    await trace("watch", { reconciliation: id, directories: props.directories }, () =>
-      Promise.all(props.directories.map(watcher.wait)).then(() => undefined),
-    )
     // Discovery admits TUI-only plugins while server inventory carries combined plugins.
     // Their overlap is intentional; explicit configuration remains the final authority.
     const entries = mergePluginTargets(
@@ -339,8 +322,6 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
         ))
       )
         continue
-      // Watch even when the resolve below fails so fixing a broken plugin reloads it.
-      if (local) await watcher.add(fileURLToPath(local))
       const previous = Object.values(store.registrations).find((registration) => registration.target === target)
       const memo = local ? undefined : npmFailures.get(target)
       const resolved = memo
@@ -398,7 +379,7 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
     }
 
     // Compare: unchanged plugins are never touched, and a fully unchanged
-    // generation is a no-op, so spurious watch events cost nothing.
+    // generation is a no-op, so a reload with nothing changed costs nothing.
     const currentIds = Object.keys(store.registrations)
     const desiredIds = [...desired.keys()]
     const structural =
@@ -417,8 +398,7 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
           const registration = store.registrations[id]!
           const item = desired.get(id)!
           // enabled derives from config directives alone, so config wins over
-          // manual dialog toggles on every reconcile — the same semantics
-          // config saves had before hot reload existed, just more frequent.
+          // manual dialog toggles on every reconcile.
           return !sameGeneration(registration, item) || registration.active !== item.enabled
         })
 
@@ -572,7 +552,6 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
     let disposing: Promise<void> | undefined
     const dispose = () => {
       if (disposing) return disposing
-      stopWatching()
       disposing = loading
         .catch(() => undefined)
         .then(() =>
@@ -612,6 +591,7 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
         // toggle mid-reload cannot mix registrations across generations.
         activate: (id) => enqueue(() => activate(id)),
         deactivate: (id) => enqueue(() => deactivate(id)),
+        reload: () => enqueue(reconcile),
       }}
     >
       {props.children}
@@ -669,8 +649,8 @@ async function resolvePlugin(
     : await trace("prepare", { reconciliation, target: spec, install }, () => packages.prepare(spec, install))
   const entrypoint = Host.resolve(target).tui
   if (!entrypoint) return { status: "unsupported" as const }
-  // Content remains stable across the several mtimes one save may expose to
-  // filesystem watchers, while the generation keeps reverted modules fresh.
+  // Versions follow content, not mtimes, while the generation keeps reverted
+  // modules fresh.
   let source = local
     ? await trace("read", { reconciliation, target: spec, entrypoint }, () => readSource(entrypoint))
     : {
