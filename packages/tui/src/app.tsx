@@ -31,6 +31,7 @@ import {
   onMount,
   onCleanup,
   batch,
+  untrack,
   Show,
 } from "solid-js"
 import {
@@ -1300,12 +1301,16 @@ function App() {
     bindings: pinnedSessionBindingCommands,
   }))
 
+  // The keymap also evaluates this gate inside the selectors that derive its
+  // command and shortcut lists. Untracked, the prompt text it reads does not
+  // make those selectors rebuild on every keystroke.
   Keymap.createLayer(() => ({
-    enabled: () => {
-      const current = promptRef.current
-      if (!current?.focused) return true
-      return current.current.text === ""
-    },
+    enabled: () =>
+      untrack(() => {
+        const current = promptRef.current
+        if (!current?.focused) return true
+        return current.current.text === ""
+      }),
     bindings: ["app.exit"],
   }))
 
