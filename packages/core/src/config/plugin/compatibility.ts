@@ -5,7 +5,6 @@ import { FSUtil } from "@opencode/util/fs-util"
 import path from "path"
 import { Effect, FiberMap, PubSub, Semaphore, Stream } from "effect"
 import { Config } from "../../config.js"
-import { Watcher } from "../../filesystem/watcher.js"
 import { Skill } from "../../skill.js"
 import { SkillFile } from "./skill-file.js"
 import { SkillScan } from "./skill-scan.js"
@@ -15,7 +14,6 @@ export const Plugin = define({
   effect: Effect.fn(function* (ctx) {
     const config = yield* Config.Service
     const fs = yield* FSUtil.Service
-    const watcher = yield* Watcher.Service
     const watches = yield* FiberMap.make<string>()
     const changes = yield* PubSub.sliding<string>(1)
     const lock = Semaphore.makeUnsafe(1)
@@ -25,7 +23,7 @@ export const Plugin = define({
       target: string,
       type: "file" | "directory",
     ) {
-      const updates = yield* watcher.subscribe(
+      const updates = yield* config.watch(
         type === "directory" ? { path: target, type, ignore: SkillScan.ignore } : { path: target, type },
       )
       yield* FiberMap.run(

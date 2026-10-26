@@ -7,7 +7,6 @@ import { Global } from "@opencode/util/global"
 import path from "path"
 import { Effect, FiberMap, PubSub, Semaphore, Stream } from "effect"
 import { Config } from "../../config.js"
-import { Watcher } from "../../filesystem/watcher.js"
 import { Location } from "../../location.js"
 import { AbsolutePath } from "../../schema.js"
 import { Skill } from "../../skill.js"
@@ -25,7 +24,6 @@ export const Plugin = define({
     const fs = yield* FSUtil.Service
     const global = yield* Global.Service
     const location = yield* Location.Service
-    const watcher = yield* Watcher.Service
     const loaded: { entries: Entry[]; skills: Skill.Info[] } = {
       entries: yield* config.entries(),
       skills: [],
@@ -36,7 +34,7 @@ export const Plugin = define({
 
     const watch = Effect.fn("ConfigSkillPlugin.watch")(function* (directory: string, type: "file" | "directory") {
       const target = path.resolve(directory)
-      const updates = yield* watcher.subscribe(
+      const updates = yield* config.watch(
         type === "directory" ? { path: target, type, ignore: SkillScan.ignore } : { path: target, type },
       )
       yield* FiberMap.run(

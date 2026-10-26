@@ -128,6 +128,7 @@ function makeRoutes<AuthError, AuthServices>(
         claude: options.config?.claude,
         file: options.config?.file,
         content: options.config?.content,
+        watch: options.config?.watch,
       }),
     ),
     InstructionDiscovery.node.replace(InstructionDiscovery.configured({ project: options.config?.project })),

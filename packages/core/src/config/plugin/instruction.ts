@@ -29,7 +29,6 @@ export const Plugin = define({
       const global = yield* Global.Service
       const http = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
       const location = yield* Location.Service
-      const watcher = yield* Watcher.Service
       const changes = yield* PubSub.sliding<string>(1)
       const watches = yield* FiberMap.make<string>()
       const lock = Semaphore.makeUnsafe(1)
@@ -57,7 +56,7 @@ export const Plugin = define({
           : []),
       ]
       for (const file of new Set(candidates)) {
-        const updates = yield* watcher.subscribe({ path: file, type: "file" })
+        const updates = yield* config.watch({ path: file, type: "file" })
         yield* updates.pipe(Stream.runForEach(publish), Effect.forkScoped({ startImmediately: true }))
       }
 
@@ -128,7 +127,7 @@ export const Plugin = define({
         }
         for (const [key] of Array.from(watches)) if (!watched.has(key)) yield* FiberMap.remove(watches, key)
         for (const file of watched) {
-          const updates = yield* watcher.subscribe({ path: file, type: "file" })
+          const updates = yield* config.watch({ path: file, type: "file" })
           yield* FiberMap.run(watches, file, updates.pipe(Stream.runForEach(publish)), {
             onlyIfMissing: true,
             startImmediately: true,

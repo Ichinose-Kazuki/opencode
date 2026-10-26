@@ -9,7 +9,6 @@ import { Context, Effect, Layer, Option, PubSub, Scope, Stream } from "effect"
 import path from "path"
 import { fileURLToPath, pathToFileURL } from "url"
 import { Config } from "../../config.js"
-import { Watcher } from "../../filesystem/watcher.js"
 import { Location } from "../../location.js"
 import { PluginSourceDirectory } from "../../plugin/source-directory.js"
 
@@ -36,7 +35,6 @@ export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const config = yield* Config.Service
-    const watcher = yield* Watcher.Service
     const fs = yield* FSUtil.Service
     const location = yield* Location.Service
     const configuredChanges = yield* PubSub.unbounded<void>()
@@ -57,7 +55,7 @@ export const layer = Layer.effect(
         // The config change feed already covers {plugin,plugins} directories.
         if (isPluginSource(entries, operation.target)) continue
         watched.add(operation.target)
-        const updates = yield* watcher.subscribe({
+        const updates = yield* config.watch({
           path: operation.target,
           type: (yield* fs.isDir(operation.target)) ? "directory" : "file",
         })
@@ -95,7 +93,7 @@ export const layer = Layer.effect(
 export const node = makeLocationNode({
   service: Service,
   layer,
-  deps: [Config.node, FSUtil.node, Watcher.node, Location.node],
+  deps: [Config.node, FSUtil.node, Location.node],
 })
 
 export const empty = makeLocationNode({

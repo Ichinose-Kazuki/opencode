@@ -40,6 +40,15 @@ export interface Interface {
    * source files they parse and rebuild their own state.
    */
   readonly changes: () => Stream.Stream<Watcher.Update>
+  /**
+   * Watches a config source, or returns an empty stream when the watch option
+   * is off. Config plugins watch the sources they read through this, so the
+   * option covers them as well as the config roots.
+   */
+  readonly watch: (
+    input: Watcher.WatchInput,
+    onReady?: Effect.Effect<void>,
+  ) => Effect.Effect<Stream.Stream<Watcher.Update>>
   /** Updates supported global config fields while preserving unrelated JSONC content. */
   readonly update?: (patch: Patch) => Effect.Effect<void, FSUtil.Error>
 }
@@ -54,6 +63,8 @@ export const Options = Schema.Struct({
   claude: Schema.optional(Schema.Boolean),
   file: Schema.optional(Schema.String),
   content: Schema.optional(Schema.String),
+  // false stops watching config sources; /reload rereads them.
+  watch: Schema.optional(Schema.Boolean),
 })
 export type Options = typeof Options.Type
 
@@ -84,6 +95,16 @@ export const testLayer = (
         entries: () => Ref.get(entries),
         compatibility: () => Effect.succeed(compatibility),
         changes: () => Stream.fromPubSub(updates),
+        // Resolved per call so a watcher layer merged beside this one still serves it.
+        watch: (input, onReady) =>
+          Effect.serviceOption(Watcher.Service).pipe(
+            Effect.flatMap(
+              Option.match({
+                onNone: () => Effect.succeed(Stream.empty),
+                onSome: (watcher) => watcher.subscribe(input, onReady),
+              }),
+            ),
+          ),
         setEntries: (next) => Ref.set(entries, next),
         emitChange: (update) => PubSub.publish(updates, update).pipe(Effect.asVoid),
       })
@@ -98,6 +119,8 @@ export const layer = (options?: Options) =>
       const fs = yield* FSUtil.Service
       const location = yield* Location.Service
       const watcher = yield* Watcher.Service
+      const watch = (input: Watcher.WatchInput, onReady?: Effect.Effect<void>) =>
+        options?.watch === false ? Effect.succeed(Stream.empty) : watcher.subscribe(input, onReady)
       const bus = yield* Bus.Service
       const credentials = yield* Credential.Service
       const globalService = yield* Global.Service
@@ -304,14 +327,12 @@ export const layer = (options?: Options) =>
           if (!plan.has(key)) yield* FiberMap.remove(watched, key)
         }
         for (const [key, target] of plan) {
-          yield* watcher
-            .subscribe(target, requestReload)
-            .pipe(
-              Effect.flatMap(
-                Stream.runForEach((update) => PubSub.publish(updates, update).pipe(Effect.andThen(requestReload))),
-              ),
-              FiberMap.run(watched, key, { onlyIfMissing: true, startImmediately: true }),
-            )
+          yield* watch(target, requestReload).pipe(
+            Effect.flatMap(
+              Stream.runForEach((update) => PubSub.publish(updates, update).pipe(Effect.andThen(requestReload))),
+            ),
+            FiberMap.run(watched, key, { onlyIfMissing: true, startImmediately: true }),
+          )
         }
       })
 
@@ -412,6 +433,7 @@ export const layer = (options?: Options) =>
             agents: Effect.filter(sources.agents, fs.isDir),
           }),
         changes: () => Stream.fromPubSub(updates),
+        watch,
         update,
       })
     }),
