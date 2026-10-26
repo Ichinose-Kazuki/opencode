@@ -14,7 +14,6 @@ import { PluginInternal } from "./internal.js"
 import { PluginModule } from "./module.js"
 import { SdkPlugins } from "./sdk.js"
 import { PluginUpdate } from "./update.js"
-import { Watcher } from "../filesystem/watcher.js"
 
 const resolve = Effect.fn("PluginSupervisor.resolve")(function* (
   modules: Effect.Success<ReturnType<typeof PluginModule.make>>,
@@ -216,8 +215,6 @@ export const layer = Layer.effectDiscard(
         Stream.runForEach(() => notify),
         Effect.forkScoped({ startImmediately: true }),
       )
-    yield* watch(sources.changes())
-    yield* watch(modules.changes())
     yield* watch(managed.changes())
     yield* watch(Stream.fromEffectRepeat(Effect.sleep("24 hours")))
     yield* watch(bus.subscribe([Event.Updated, SdkPlugins.Updated]))
@@ -256,7 +253,6 @@ const nodeDeps = [
   PluginUpdate.node,
   Bus.node,
   Npm.node,
-  Watcher.node,
   PluginInternal.requirements,
 ] as const
 

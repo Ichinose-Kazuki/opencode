@@ -31,7 +31,6 @@ export const ServerOptions = Schema.Struct({
       claude: Schema.optional(Schema.Boolean),
       file: Schema.optional(Schema.String),
       content: Schema.optional(Schema.String),
-      watch: Schema.optional(Schema.Boolean),
     }),
   ),
   windows: Schema.optional(

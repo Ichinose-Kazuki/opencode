@@ -22,8 +22,6 @@ const legacySources = [
   { pattern: "{agent,agents}/**/*.md", primary: false },
   { pattern: "{mode,modes}/*.md", primary: true },
 ] as const
-// Keep in sync with the legacySources patterns and the name-strip regex in decode.
-const sourceDirectories = ["agent", "agents", "mode", "modes"] as const
 const decodeAgent = Schema.decodeUnknownOption(ConfigAgent.Info)
 const decodeLegacyAgent = Schema.decodeUnknownOption(ConfigAgentV1.Info)
 const decodeConfig = Schema.decodeUnknownOption(Info)
@@ -56,18 +54,12 @@ export const Plugin = define({
       Effect.tap((documents) => Effect.sync(() => (loaded.documents = documents))),
       Effect.andThen(ctx.agent.reload()),
     )
-    // One trigger feed serializes reloads and shares one debounce window;
-    // subscribing before the initial scan means updates racing the scan still
-    // trigger a rebuild. Each source is subscribed eagerly on its own fiber
-    // (Stream.merge and Stream.debounce both open upstream a fiber hop later)
-    // so no update slips through while the debounce starts its pull.
+    // Subscribing before the initial scan means a config update racing the scan
+    // still triggers a rebuild. The event feed is subscribed eagerly on its own
+    // fiber (Stream.debounce opens upstream a fiber hop later) so no update
+    // slips through while the debounce starts its pull.
     const changes = yield* PubSub.sliding<void>(1)
     const notify = () => PubSub.publish(changes, undefined)
-    yield* config.changes().pipe(
-      Stream.filterEffect((update) => Effect.map(config.entries(), (entries) => isAgentSource(entries, update.path))),
-      Stream.runForEach(notify),
-      Effect.forkScoped({ startImmediately: true }),
-    )
     yield* ctx.event.subscribe().pipe(
       Stream.filter((event) => event.type === "config.updated"),
       Stream.runForEach(notify),
@@ -127,16 +119,6 @@ export const Plugin = define({
     })
   }),
 })
-
-// Matches anything at or under <root>/{agent,agents,mode,modes}. No file-suffix
-// check: directory-level events such as renames carry no per-file paths.
-function isAgentSource(entries: Entry[], file: string) {
-  return entries.some(
-    (entry) =>
-      entry.type === "directory" &&
-      sourceDirectories.some((name) => FSUtil.contains(path.join(entry.path, name), file)),
-  )
-}
 
 function expandPermissions(rules: Permission.Ruleset, home: string): Permission.Ruleset {
   // Expand only resources tools resolve as filesystem paths. Bash resources are raw shell text:

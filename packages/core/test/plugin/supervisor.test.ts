@@ -1,5 +1,5 @@
 import { describe, expect } from "bun:test"
-import { Deferred, Duration, Effect, Layer, LayerMap, Stream } from "effect"
+import { Deferred, Duration, Effect, Layer, LayerMap } from "effect"
 import { TestClock } from "effect/testing"
 import { define } from "@opencode/plugin/effect/plugin"
 import { AppNodeBuilder } from "@opencode/core/effect/app-node-builder"
@@ -41,7 +41,6 @@ const sourceLayer = Layer.succeed(
         source.activations++
         return source.operations
       }),
-    changes: () => Stream.never,
   }),
 )
 

@@ -4,7 +4,7 @@ import type { Plugin } from "@opencode/plugin/effect/plugin"
 import { Host } from "@opencode/plugin/host"
 import { createPluginSources } from "@opencode/plugin/source"
 import { Npm } from "@opencode/util/npm"
-import { Deferred, Effect, FiberSet, PubSub, Schema, Stream } from "effect"
+import { Effect, Schema } from "effect"
 import path from "path"
 import { stat } from "node:fs/promises"
 import { fileURLToPath, pathToFileURL } from "url"
@@ -13,31 +13,12 @@ import type { Generation } from "../plugin.js"
 import { PluginPromise } from "./promise.js"
 import { Config } from "../config.js"
 import { ManagedPolicy } from "../managed-policy.js"
-import { Watcher } from "../filesystem/watcher.js"
 
 export const make = Effect.fn("PluginModule.make")(function* () {
   const config = yield* Config.Service
   const managed = yield* ManagedPolicy.Service
-  const watcher = yield* Watcher.Service
-  const scope = yield* Effect.scope
-  const runPromise = yield* FiberSet.makeRuntimePromise()
-  const changes = yield* PubSub.unbounded<void>()
-  const watched = new Set<string>()
-  const watch = Effect.fn("PluginModule.watch")(function* (file: string) {
-    if (watched.has(file)) return
-    watched.add(file)
-    const ready = yield* Deferred.make<void>()
-    const target = yield* Effect.promise(() => watchTarget(file))
-    const updates = yield* watcher.subscribe(target, Deferred.succeed(ready, undefined))
-    yield* updates.pipe(
-      Stream.runForEach(() => PubSub.publish(changes, undefined)),
-      Effect.ensuring(Deferred.succeed(ready, undefined)),
-      Effect.forkIn(scope, { startImmediately: true }),
-    )
-    yield* Deferred.await(ready)
-  })
   const sources = yield* Effect.acquireRelease(
-    Effect.sync(() => createPluginSources((file) => runPromise(watch(file)))),
+    Effect.sync(() => createPluginSources()),
     (sources) => Effect.sync(() => sources.dispose()),
   )
   return {
@@ -59,21 +40,8 @@ export const make = Effect.fn("PluginModule.make")(function* () {
           return { blocked: true as const }
         return yield* load(operation, sources, options)
       }),
-    changes: () => Stream.fromPubSub(changes),
   }
 })
-
-// A missing dependency may have missing parents too. Watch the nearest existing
-// ancestor recursively so creating the rest of the path can trigger recovery.
-function watchTarget(file: string): Promise<Watcher.WatchInput> {
-  return stat(file).then(
-    (info) => ({ path: file, type: info.isDirectory() ? "directory" : "file" }),
-    (cause) => {
-      if (path.dirname(file) === file) throw cause
-      return watchTarget(path.dirname(file))
-    },
-  )
-}
 
 const Module = Schema.Struct({
   default: Schema.Union([

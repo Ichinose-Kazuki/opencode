@@ -16,7 +16,6 @@ import { ConfigPermissionV1 } from "@opencode/core/v1/config/permission"
 import { ConfigNormalize } from "@opencode/core/config/normalize"
 import { ConfigVariable } from "@opencode/core/config/variable"
 import { FSUtil } from "@opencode/util/fs-util"
-import { Watcher } from "@opencode/core/filesystem/watcher"
 import { Bus } from "@opencode/core/bus"
 import { Global } from "@opencode/util/global"
 import { Location } from "@opencode/core/location"
@@ -54,7 +53,6 @@ function testLayer(
   globalDirectory = path.join(directory, "global"),
   projectDirectory = directory,
   vcs?: Project.Vcs,
-  watcher: Layer.Layer<Watcher.Service | Watcher.Test> = Watcher.testLayer,
   credentialNode = emptyCredentialNode,
   wellknownNode = emptyWellknownNode,
   options?: Config.Options,
@@ -68,17 +66,13 @@ function testLayer(
       ),
     ),
   )
-  const built = AppNodeBuilder.build(LayerNode.group([Config.node, Bus.node]), [
+  return AppNodeBuilder.build(LayerNode.group([Config.node, Bus.node]), [
     Config.node.replace(Config.configured({ system: false, ...options })),
     Location.node.replace(locationLayer),
     Global.node.replace(Global.layerWith({ config: globalDirectory, home: path.join(globalDirectory, "home") })),
     Credential.node.replace(credentialNode),
     WellKnown.node.replace(wellknownNode),
-    Watcher.node.replace(watcher),
   ])
-  // Merge the watcher layer by reference so Watcher.Test resolves to the same
-  // memoized instance the built graph uses.
-  return Layer.mergeAll(built, watcher)
 }
 
 const tool = (effect: "allow" | "deny") => ({ action: "tool.use", resource: "shell:*", effect })
@@ -120,14 +114,8 @@ describe("Config", () => {
             Effect.gen(function* () {
               const config = yield* Config.Service
               expect(yield* config.compatibility!()).toEqual({ claude: [], agents: [] })
-              const watcher = yield* Watcher.Test
-              expect(
-                (yield* watcher.subscriptions()).filter((watch) => watch.type === "entries" && watch.path === home),
-              ).toEqual([])
             }).pipe(
-              Effect.provide(
-                testLayer(project, global, project, undefined, undefined, undefined, undefined, { global: false }),
-              ),
+              Effect.provide(testLayer(project, global, project, undefined, undefined, undefined, { global: false })),
             ),
           ),
         )
@@ -170,9 +158,7 @@ describe("Config", () => {
                 AbsolutePath.make(path.join(project, ".agents")),
               ])
             }).pipe(
-              Effect.provide(
-                testLayer(project, global, project, undefined, undefined, undefined, undefined, { claude: false }),
-              ),
+              Effect.provide(testLayer(project, global, project, undefined, undefined, undefined, { claude: false })),
             ),
           ),
         )
@@ -203,9 +189,7 @@ describe("Config", () => {
               const config = yield* Config.Service
               expect(Config.latest(yield* config.entries(), "shell")).toBeUndefined()
             }).pipe(
-              Effect.provide(
-                testLayer(project, global, project, undefined, undefined, undefined, undefined, { global: false }),
-              ),
+              Effect.provide(testLayer(project, global, project, undefined, undefined, undefined, { global: false })),
             ),
           ),
         )
@@ -260,20 +244,9 @@ describe("Config", () => {
         const global = AbsolutePath.make(path.join(real, ".opencode"))
         const once = Effect.gen(function* () {
           const config = yield* Config.Service
-          const watcher = yield* Watcher.Test
           const entries = yield* config.entries()
           expect(entries.flatMap((entry) => (entry.type === "directory" ? [entry.path] : []))).toEqual([global])
           expect(entries.flatMap((entry) => (entry.type === "document" ? [entry.info.shell] : []))).toEqual(["global"])
-          expect(
-            (yield* watcher.subscriptions())
-              .filter((subscription) => subscription.type === "directory")
-              .map((subscription) => subscription.path),
-          ).toEqual([global])
-          expect(
-            (yield* watcher.subscriptions()).filter((subscription) =>
-              subscription.path.includes(`${path.sep}.opencode${path.sep}`),
-            ),
-          ).toEqual([])
         })
         return Effect.promise(async () => {
           await fs.mkdir(global, { recursive: true })
@@ -326,7 +299,7 @@ describe("Config", () => {
               ).toBe("deny")
             }).pipe(
               Effect.provide(
-                testLayer(project, global, project, undefined, undefined, emptyCredentialNode, emptyWellknownNode, {
+                testLayer(project, global, project, undefined, emptyCredentialNode, emptyWellknownNode, {
                   system,
                 }),
               ),
@@ -341,7 +314,7 @@ describe("Config", () => {
               ).toEqual(["global", "project"])
             }).pipe(
               Effect.provide(
-                testLayer(project, global, project, undefined, undefined, emptyCredentialNode, emptyWellknownNode, {
+                testLayer(project, global, project, undefined, emptyCredentialNode, emptyWellknownNode, {
                   system: false,
                 }),
               ),
@@ -413,7 +386,7 @@ describe("Config", () => {
               expect(Config.latest(entries, "shell")).toBe("content")
             }).pipe(
               Effect.provide(
-                testLayer(project, global, project, undefined, undefined, emptyCredentialNode, emptyWellknownNode, {
+                testLayer(project, global, project, undefined, emptyCredentialNode, emptyWellknownNode, {
                   file: explicit,
                   content: JSON.stringify({ shell: "content" }),
                 }),
@@ -440,11 +413,9 @@ describe("Config", () => {
             Effect.gen(function* () {
               const config = yield* Config.Service
               expect(Config.latest(yield* config.entries(), "shell")).toBe("global")
-              const watcher = yield* Watcher.Test
-              expect((yield* watcher.subscriptions()).map((subscription) => subscription.path)).toEqual([global])
             }).pipe(
               Effect.provide(
-                testLayer(project, global, project, undefined, undefined, emptyCredentialNode, emptyWellknownNode, {
+                testLayer(project, global, project, undefined, emptyCredentialNode, emptyWellknownNode, {
                   project: false,
                 }),
               ),
@@ -452,183 +423,6 @@ describe("Config", () => {
           ),
         )
       }),
-    ),
-  )
-
-  it.live("loads configuration without watching it when the watch option is off", () =>
-    Effect.acquireDisposable(Effect.promise(() => tmpdir())).pipe(
-      Effect.flatMap((tmp) => {
-        const global = path.join(tmp.path, "global")
-        const project = path.join(tmp.path, "project")
-        return Effect.promise(async () => {
-          await fs.mkdir(global, { recursive: true })
-          await fs.mkdir(project, { recursive: true })
-          await fs.writeFile(path.join(project, "opencode.json"), JSON.stringify({ shell: "project" }))
-        }).pipe(
-          Effect.andThen(
-            Effect.gen(function* () {
-              const config = yield* Config.Service
-              expect(Config.latest(yield* config.entries(), "shell")).toBe("project")
-              yield* Stream.runDrain(yield* config.watch({ path: project, type: "file" }))
-              const watcher = yield* Watcher.Test
-              expect(yield* watcher.subscriptions()).toEqual([])
-            }).pipe(
-              Effect.provide(
-                testLayer(project, global, project, undefined, undefined, emptyCredentialNode, emptyWellknownNode, {
-                  watch: false,
-                }),
-              ),
-            ),
-          ),
-        )
-      }),
-    ),
-  )
-
-  it.live("reloads file substitutions when their source changes", () =>
-    Effect.acquireDisposable(Effect.promise(() => tmpdir())).pipe(
-      Effect.flatMap((tmp) =>
-        Effect.gen(function* () {
-          const global = path.join(tmp.path, "global")
-          const project = path.join(tmp.path, "project")
-          const file = path.join(global, "opencode.json")
-          const source = path.join(global, "shell.txt")
-          yield* Effect.promise(async () => {
-            await fs.mkdir(global, { recursive: true })
-            await fs.mkdir(project, { recursive: true })
-            await fs.writeFile(source, "first")
-            await fs.writeFile(file, JSON.stringify({ shell: "{file:shell.txt}" }))
-          })
-          return yield* Effect.gen(function* () {
-            const config = yield* Config.Service
-            const bus = yield* Bus.Service
-            const watcher = yield* Watcher.Test
-            const changed = yield* bus
-              .subscribe(Event.Updated)
-              .pipe(Stream.take(1), Stream.runCollect, Effect.forkScoped)
-            yield* Effect.sleep("10 millis")
-
-            yield* Effect.promise(() => fs.writeFile(source, "second"))
-            yield* watcher.emit({ type: "update", path: source })
-
-            expect(yield* Fiber.join(changed)).toHaveLength(1)
-            expect(Config.latest(yield* config.entries(), "shell")).toBe("second")
-          }).pipe(Effect.provide(testLayer(project, global, project, undefined, Watcher.testLayer)))
-        }),
-      ),
-    ),
-  )
-
-  it.live("excludes missing files under symlinked global roots when global is disabled", () =>
-    Effect.acquireDisposable(Effect.promise(() => tmpdir())).pipe(
-      Effect.flatMap((tmp) => {
-        const global = path.join(tmp.path, "global")
-        const link = path.join(tmp.path, "link")
-        const project = path.join(link, "plugins", "demo")
-        return Effect.promise(async () => {
-          await fs.mkdir(path.join(global, "plugins", "demo"), { recursive: true })
-          await fs.symlink(global, link, process.platform === "win32" ? "junction" : undefined)
-        }).pipe(
-          Effect.andThen(
-            Effect.gen(function* () {
-              const watcher = yield* Watcher.Test
-              const subscriptions = yield* watcher.subscriptions()
-              expect(subscriptions.length).toBeGreaterThan(0)
-              expect(
-                subscriptions.filter((item) => inFixture(global, item.path) || inFixture(link, item.path)),
-              ).toEqual([])
-            }).pipe(
-              Effect.provide(
-                testLayer(project, global, project, undefined, undefined, undefined, undefined, { global: false }),
-              ),
-            ),
-          ),
-        )
-      }),
-    ),
-  )
-
-  it.live("exposes filesystem updates under config roots through changes", () =>
-    Effect.acquireDisposable(Effect.promise(() => tmpdir())).pipe(
-      Effect.flatMap((tmp) =>
-        Effect.gen(function* () {
-          const global = path.join(tmp.path, "global")
-          const project = path.join(tmp.path, "project")
-          yield* Effect.promise(async () => {
-            await fs.mkdir(path.join(global, "commands"), { recursive: true })
-            await fs.mkdir(project, { recursive: true })
-          })
-          return yield* Effect.gen(function* () {
-            const config = yield* Config.Service
-            const watcher = yield* Watcher.Test
-            const received = yield* config
-              .changes()
-              .pipe(Stream.take(1), Stream.runCollect, Effect.forkScoped({ startImmediately: true }))
-            yield* Effect.sleep("10 millis")
-
-            const file = path.join(global, "commands", "review.md")
-            yield* watcher.emit({ type: "update", path: file })
-
-            const collected = yield* Fiber.join(received).pipe(Effect.timeout("1 second"))
-            expect(Array.from(collected)).toEqual([{ type: "update", path: file }])
-          }).pipe(Effect.provide(testLayer(project, global, project, undefined, Watcher.testLayer)))
-        }),
-      ),
-    ),
-  )
-
-  // Real watcher on purpose: the regression this pins (a deleted config file's
-  // watch being torn down, making recreation invisible) only reproduces with
-  // path-faithful event delivery.
-  it.live("keeps watching a deleted config file so recreating it reloads", () =>
-    Effect.acquireDisposable(Effect.promise(() => tmpdir())).pipe(
-      Effect.flatMap((tmp) =>
-        Effect.gen(function* () {
-          const global = path.join(tmp.path, "global")
-          const project = path.join(tmp.path, "project")
-          const file = path.join(project, "opencode.json")
-          yield* Effect.promise(async () => {
-            await fs.mkdir(global, { recursive: true })
-            await fs.mkdir(project, { recursive: true })
-            await fs.writeFile(file, JSON.stringify({ shell: "one" }))
-          })
-          return yield* Effect.gen(function* () {
-            const config = yield* Config.Service
-            const bus = yield* Bus.Service
-            expect(Config.latest(yield* config.entries(), "shell")).toBe("one")
-            yield* Effect.sleep("10 millis")
-
-            const removed = yield* bus
-              .subscribe(Event.Updated)
-              .pipe(Stream.take(1), Stream.runDrain, Effect.forkScoped({ startImmediately: true }))
-            yield* Effect.promise(() => fs.rm(file))
-            yield* Fiber.join(removed).pipe(Effect.timeout("5 seconds"))
-            expect(Config.latest(yield* config.entries(), "shell")).toBeUndefined()
-
-            const recreated = yield* bus
-              .subscribe(Event.Updated)
-              .pipe(Stream.take(1), Stream.runDrain, Effect.forkScoped({ startImmediately: true }))
-            yield* Effect.promise(() => fs.writeFile(file, JSON.stringify({ shell: "two" })))
-            yield* Fiber.join(recreated).pipe(Effect.timeout("5 seconds"))
-            expect(Config.latest(yield* config.entries(), "shell")).toBe("two")
-          }).pipe(
-            Effect.provide(
-              AppNodeBuilder.build(LayerNode.group([Config.node, Bus.node]), [
-                Config.node.replace(Config.configured({ system: false })),
-                Location.node.replace(
-                  Layer.succeed(
-                    Location.Service,
-                    Location.Service.of(location({ directory: AbsolutePath.make(project) })),
-                  ),
-                ),
-                Global.node.replace(Global.layerWith({ config: global, home: path.join(global, "home") })),
-                Credential.node.replace(emptyCredentialNode),
-                WellKnown.node.replace(emptyWellknownNode),
-              ]),
-            ),
-          )
-        }),
-      ),
     ),
   )
 
@@ -641,13 +435,6 @@ describe("Config", () => {
       const entry = new Document({ type: "document", info: new Info({}) })
       yield* test.setEntries([entry])
       expect(yield* config.entries()).toEqual([entry])
-
-      const received = yield* config
-        .changes()
-        .pipe(Stream.take(1), Stream.runCollect, Effect.forkScoped({ startImmediately: true }))
-      yield* Effect.yieldNow
-      yield* test.emitChange({ type: "create", path: "/root/commands/review.md" })
-      expect(Array.from(yield* Fiber.join(received))).toEqual([{ type: "create", path: "/root/commands/review.md" }])
     }).pipe(Effect.provide(Config.testLayer())),
   )
 
@@ -760,9 +547,7 @@ describe("Config", () => {
             expect(
               refreshed.flatMap((entry) => (entry.type === "document" && entry.info.shell ? [entry.info.shell] : [])),
             ).toEqual(["next", "global", "project"])
-          }).pipe(
-            Effect.provide(testLayer(project, global, project, undefined, undefined, credentialNode, wellknownNode)),
-          )
+          }).pipe(Effect.provide(testLayer(project, global, project, undefined, credentialNode, wellknownNode)))
         }),
       (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
     ),
@@ -848,7 +633,6 @@ describe("Config", () => {
               Global.node.replace(Global.layerWith({ config: global, home: path.join(global, "home") })),
               Credential.node.replace(credentialNode),
               KV.node.replace(kv),
-              Watcher.node.replace(Watcher.testLayer),
             ])
           const services = Effect.gen(function* () {
             const config = yield* Config.Service
@@ -979,7 +763,7 @@ describe("Config", () => {
 
           yield* Config.Service.use((config) => config.entries()).pipe(
             Effect.provide(
-              testLayer(project, global, project, undefined, undefined, credentialNode, wellknownNode, {
+              testLayer(project, global, project, undefined, credentialNode, wellknownNode, {
                 file: malformed,
                 content: "",
               }),
@@ -1314,39 +1098,6 @@ describe("Config", () => {
 
           expect(compatibility.claude).toEqual([AbsolutePath.make(path.join(home, ".claude"))])
           expect(compatibility.agents).toEqual([AbsolutePath.make(path.join(home, ".agents"))])
-        }),
-      ),
-    ),
-  )
-
-  it.live("does not recursively watch ecosystem config roots", () =>
-    Effect.acquireDisposable(Effect.promise(() => tmpdir())).pipe(
-      Effect.flatMap((tmp) =>
-        Effect.gen(function* () {
-          yield* Effect.promise(() =>
-            Promise.all([
-              fs.mkdir(path.join(tmp.path, ".claude", "skills"), { recursive: true }),
-              fs.mkdir(path.join(tmp.path, ".agents"), { recursive: true }),
-            ]),
-          )
-          return yield* Effect.gen(function* () {
-            const config = yield* Config.Service
-            const watcher = yield* Watcher.Test
-            yield* config.entries()
-
-            expect((yield* watcher.subscriptions()).filter((item) => inFixture(tmp.path, item.path))).toEqual([
-              {
-                type: "directory",
-                path: AbsolutePath.make(path.join(tmp.path, "global")),
-                ignore: FSUtil.ignoreGlobs.toSorted(),
-              },
-              {
-                type: "entries",
-                path: tmp.path,
-                names: [".agents", ".claude", ".opencode", "opencode.json", "opencode.jsonc"],
-              },
-            ])
-          }).pipe(Effect.provide(testLayer(tmp.path, undefined, undefined, undefined, Watcher.testLayer)))
         }),
       ),
     ),
@@ -1940,15 +1691,9 @@ describe("Config", () => {
           )
           return yield* Effect.gen(function* () {
             const config = yield* Config.Service
-            const watcher = yield* Watcher.Test
             const documents = (yield* config.entries()).filter((entry) => entry.type === "document")
 
             expect(documents.map((document) => document.info.$schema)).toEqual(["base"])
-            expect(yield* watcher.subscriptions()).toContainEqual({
-              path: tmp.path,
-              type: "entries",
-              names: [".agents", ".claude", ".opencode", "opencode.json", "opencode.jsonc"],
-            })
           }).pipe(Effect.provide(testLayer(tmp.path)))
         }),
       ),

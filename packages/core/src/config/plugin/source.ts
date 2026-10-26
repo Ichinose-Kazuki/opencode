@@ -5,7 +5,7 @@ import { ConfigPlugin } from "@opencode/schema/config/plugin"
 import { FSUtil } from "@opencode/util/fs-util"
 import { Host } from "@opencode/plugin/host"
 import { makeLocationNode } from "@opencode/util/effect/app-node"
-import { Context, Effect, Layer, Option, PubSub, Scope, Stream } from "effect"
+import { Context, Effect, Layer, Option, Scope } from "effect"
 import path from "path"
 import { fileURLToPath, pathToFileURL } from "url"
 import { Config } from "../../config.js"
@@ -26,7 +26,6 @@ export type Operation =
 
 export interface Interface {
   readonly operations: () => Effect.Effect<readonly Operation[], never, Scope.Scope>
-  readonly changes: () => Stream.Stream<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/ConfigPluginSource") {}
@@ -37,55 +36,11 @@ export const layer = Layer.effect(
     const config = yield* Config.Service
     const fs = yield* FSUtil.Service
     const location = yield* Location.Service
-    const configuredChanges = yield* PubSub.unbounded<void>()
-    const watched = new Set<string>()
-
-    // Configured local plugins can live outside config roots, where the
-    // config change feed cannot see them; watch those targets directly.
-    // Watches start on first sighting and are never torn down individually:
-    // a stale watch after a config edit costs one deduped fs handle and a
-    // no-op activation, and every watch dies with this layer's scope.
-    const watchConfiguredSources = Effect.fn("ConfigPluginSource.watchConfiguredSources")(function* (
-      entries: readonly Entry[],
-      operations: readonly Operation[],
-    ) {
-      for (const operation of operations) {
-        if (operation.type !== "add" || !path.isAbsolute(operation.target)) continue
-        if (watched.has(operation.target)) continue
-        // The config change feed already covers {plugin,plugins} directories.
-        if (isPluginSource(entries, operation.target)) continue
-        watched.add(operation.target)
-        const updates = yield* config.watch({
-          path: operation.target,
-          type: (yield* fs.isDir(operation.target)) ? "directory" : "file",
-        })
-        yield* updates.pipe(
-          Stream.runForEach(() => PubSub.publish(configuredChanges, undefined)),
-          Effect.catchCause((cause) =>
-            Effect.logError("configured plugin watch failed", { target: operation.target, cause }),
-          ),
-          Effect.forkScoped({ startImmediately: true }),
-        )
-      }
-    })
 
     return Service.of({
       operations: Effect.fn("ConfigPluginSource.operations")(function* () {
-        const entries = yield* config.entries()
-        const operations = yield* scan(fs, location, entries)
-        yield* watchConfiguredSources(entries, operations)
-        return operations
+        return yield* scan(fs, location, yield* config.entries())
       }),
-      changes: () =>
-        Stream.merge(
-          config.changes().pipe(
-            Stream.filterEffect((update) =>
-              Effect.map(config.entries(), (entries) => isPluginSource(entries, update.path)),
-            ),
-            Stream.map(() => undefined),
-          ),
-          Stream.fromPubSub(configuredChanges),
-        ),
     })
   }),
 )
@@ -102,7 +57,6 @@ export const empty = makeLocationNode({
     Service,
     Service.of({
       operations: () => Effect.succeed([]),
-      changes: () => Stream.never,
     }),
   ),
   deps: [],
@@ -185,11 +139,3 @@ const scan = Effect.fn("ConfigPluginSource.scan")(function* (
     }),
   ).pipe(Effect.map((operations) => operations.flat()))
 })
-
-function isPluginSource(entries: readonly Entry[], file: string) {
-  return entries.some(
-    (entry) =>
-      entry.type === "directory" &&
-      PluginSourceDirectory.names.some((directory) => FSUtil.contains(path.join(entry.path, directory), file)),
-  )
-}

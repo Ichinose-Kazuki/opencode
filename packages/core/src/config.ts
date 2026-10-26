@@ -4,11 +4,10 @@ import { makeLocationNode } from "@opencode/util/effect/app-node"
 import path from "path"
 import { isDeepStrictEqual } from "node:util"
 import { applyEdits, modify, type ParseError, parse } from "jsonc-parser"
-import { Context, Effect, FiberMap, Layer, Option, PubSub, Ref, Schema, Semaphore, Stream } from "effect"
+import { Context, Effect, Layer, Option, PubSub, Ref, Schema, Semaphore, Stream } from "effect"
 import { Directory, Document, Info, type Patch, type Entry, Event } from "@opencode/schema/config"
 import { Credential } from "./credential.js"
 import { Bus } from "./bus.js"
-import { Watcher } from "./filesystem/watcher.js"
 import { FSUtil } from "@opencode/util/fs-util"
 import { Global } from "@opencode/util/global"
 import { Location } from "./location.js"
@@ -16,7 +15,6 @@ import { AbsolutePath } from "./schema.js"
 import { ConfigVariable } from "./config/variable.js"
 import { ConfigNormalize } from "./config/normalize.js"
 import { ConfigDiscovery } from "./config/discovery.js"
-import { ConfigWatch } from "./config/watch.js"
 import { WellKnown } from "./wellknown.js"
 import { AppProcess } from "@opencode/util/process"
 import { ChildProcess } from "effect/process"
@@ -34,21 +32,6 @@ export interface Interface {
     readonly claude: readonly AbsolutePath[]
     readonly agents: readonly AbsolutePath[]
   }>
-  /**
-   * Streams raw filesystem updates under config roots. Config owns root
-   * topology and watch reconciliation; domain owners filter this feed for the
-   * source files they parse and rebuild their own state.
-   */
-  readonly changes: () => Stream.Stream<Watcher.Update>
-  /**
-   * Watches a config source, or returns an empty stream when the watch option
-   * is off. Config plugins watch the sources they read through this, so the
-   * option covers them as well as the config roots.
-   */
-  readonly watch: (
-    input: Watcher.WatchInput,
-    onReady?: Effect.Effect<void>,
-  ) => Effect.Effect<Stream.Stream<Watcher.Update>>
   /** Updates supported global config fields while preserving unrelated JSONC content. */
   readonly update?: (patch: Patch) => Effect.Effect<void, FSUtil.Error>
 }
@@ -63,8 +46,6 @@ export const Options = Schema.Struct({
   claude: Schema.optional(Schema.Boolean),
   file: Schema.optional(Schema.String),
   content: Schema.optional(Schema.String),
-  // false stops watching config sources; /reload rereads them.
-  watch: Schema.optional(Schema.Boolean),
 })
 export type Options = typeof Options.Type
 
@@ -73,13 +54,11 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/Co
 export interface TestInterface extends Interface {
   /** Replaces the entries returned by subsequent entries() calls. */
   readonly setEntries: (entries: Entry[]) => Effect.Effect<void>
-  /** Emits one filesystem update to every changes() subscriber. */
-  readonly emitChange: (update: Watcher.Update) => Effect.Effect<void>
 }
 
 export class Test extends Context.Service<Test, TestInterface>()("@opencode/Config/Test") {}
 
-/** In-memory config for tests: static entries with replaceable state and a test-driven change feed. */
+/** In-memory config for tests: static entries with replaceable state. */
 export const testLayer = (
   initial: Entry[] = [],
   compatibility: { readonly claude: readonly AbsolutePath[]; readonly agents: readonly AbsolutePath[] } = {
@@ -90,23 +69,10 @@ export const testLayer = (
   Layer.effectContext(
     Effect.gen(function* () {
       const entries = yield* Ref.make(initial)
-      const updates = yield* PubSub.unbounded<Watcher.Update>()
       const service = Test.of({
         entries: () => Ref.get(entries),
         compatibility: () => Effect.succeed(compatibility),
-        changes: () => Stream.fromPubSub(updates),
-        // Resolved per call so a watcher layer merged beside this one still serves it.
-        watch: (input, onReady) =>
-          Effect.serviceOption(Watcher.Service).pipe(
-            Effect.flatMap(
-              Option.match({
-                onNone: () => Effect.succeed(Stream.empty),
-                onSome: (watcher) => watcher.subscribe(input, onReady),
-              }),
-            ),
-          ),
         setEntries: (next) => Ref.set(entries, next),
-        emitChange: (update) => PubSub.publish(updates, update).pipe(Effect.asVoid),
       })
       return Context.empty().pipe(Context.add(Service, service), Context.add(Test, service))
     }),
@@ -118,9 +84,6 @@ export const layer = (options?: Options) =>
     Effect.gen(function* () {
       const fs = yield* FSUtil.Service
       const location = yield* Location.Service
-      const watcher = yield* Watcher.Service
-      const watch = (input: Watcher.WatchInput, onReady?: Effect.Effect<void>) =>
-        options?.watch === false ? Effect.succeed(Stream.empty) : watcher.subscribe(input, onReady)
       const bus = yield* Bus.Service
       const credentials = yield* Credential.Service
       const globalService = yield* Global.Service
@@ -316,31 +279,13 @@ export const layer = (options?: Options) =>
       const initial = yield* ConfigDiscovery.discover(options)
       let sources = initial
       let configs = yield* load(initial)
-      const updates = yield* PubSub.unbounded<Watcher.Update>()
       const reloads = yield* PubSub.sliding<void>(1)
-      // Readiness rescans recover writes made before a watch attached.
       const requestReload = PubSub.publish(reloads, undefined).pipe(Effect.asVoid)
-      const watched = yield* FiberMap.make<string>()
-      const reconcile = Effect.fn("Config.reconcileWatches")(function* (sources: ConfigDiscovery.Sources) {
-        const plan = ConfigWatch.plan(sources)
-        for (const key of Array.from(watched, ([key]) => key)) {
-          if (!plan.has(key)) yield* FiberMap.remove(watched, key)
-        }
-        for (const [key, target] of plan) {
-          yield* watch(target, requestReload).pipe(
-            Effect.flatMap(
-              Stream.runForEach((update) => PubSub.publish(updates, update).pipe(Effect.andThen(requestReload))),
-            ),
-            FiberMap.run(watched, key, { onlyIfMissing: true, startImmediately: true }),
-          )
-        }
-      })
 
       const reload = Effect.fn("Config.reload")(
         function* () {
           const discovered = yield* ConfigDiscovery.discover(options)
           const next = yield* load(discovered)
-          yield* reconcile(discovered)
           const compatibilityChanged =
             !isDeepStrictEqual(sources.claude, discovered.claude) ||
             !isDeepStrictEqual(sources.agents, discovered.agents)
@@ -352,7 +297,7 @@ export const layer = (options?: Options) =>
         (effect) => reloadLock.withPermit(effect),
       )
 
-      // Subscribe eagerly so synchronous watch readiness isn't dropped.
+      // Subscribe eagerly so a reload requested before the debounce starts its pull isn't dropped.
       const pendingReloads = yield* PubSub.subscribe(reloads)
       yield* Stream.fromSubscription(pendingReloads).pipe(
         Stream.debounce("100 millis"),
@@ -398,7 +343,6 @@ export const layer = (options?: Options) =>
         Effect.forever,
         Effect.forkScoped({ startImmediately: true }),
       )
-      yield* reloadLock.withPermit(reconcile(initial))
 
       const update = Effect.fn("Config.update")(
         function* (patch: Patch) {
@@ -432,8 +376,6 @@ export const layer = (options?: Options) =>
             claude: Effect.filter(sources.claude, fs.isDir),
             agents: Effect.filter(sources.agents, fs.isDir),
           }),
-        changes: () => Stream.fromPubSub(updates),
-        watch,
         update,
       })
     }),
@@ -443,16 +385,7 @@ export function configured(options?: Options) {
   return makeLocationNode({
     service: Service,
     layer: layer(options),
-    deps: [
-      Watcher.node,
-      Bus.node,
-      FSUtil.node,
-      Global.node,
-      Location.node,
-      Credential.node,
-      WellKnown.node,
-      AppProcess.node,
-    ],
+    deps: [Bus.node, FSUtil.node, Global.node, Location.node, Credential.node, WellKnown.node, AppProcess.node],
   })
 }
 

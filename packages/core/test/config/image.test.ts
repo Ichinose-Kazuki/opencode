@@ -7,7 +7,7 @@ import { Image } from "@opencode/core/image"
 import { Plugin } from "@opencode/core/plugin"
 import { PluginHost } from "@opencode/core/plugin/host"
 import { Document, Event, Info, type Entry } from "@opencode/schema/config"
-import { Effect, Layer, Schema, Stream } from "effect"
+import { Effect, Layer, Schema } from "effect"
 import { testEffect } from "../lib/effect"
 import { PluginTestLayer } from "../plugin/fixture"
 
@@ -55,8 +55,6 @@ describe("ConfigImagePlugin.Plugin", () => {
       let reads = 0
       const config = Config.Service.of({
         entries: () => Effect.sync(() => [document({ max_width: reads++ === 0 ? 1_200 : 700, max_base64_bytes: 1 })]),
-        changes: () => Stream.empty,
-        watch: () => Effect.succeed(Stream.empty),
       })
       yield* ConfigImagePlugin.Plugin.effect(yield* PluginHost.make(plugins)).pipe(
         Effect.provideService(Config.Service, config),

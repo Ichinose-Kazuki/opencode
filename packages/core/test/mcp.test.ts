@@ -304,8 +304,6 @@ function resourceMcpLayer(
               Config.Service,
               Config.Service.of({
                 entries: overrides.entries,
-                changes: () => Stream.never,
-                watch: () => Effect.succeed(Stream.empty),
               }),
             )
           : Config.testLayer([

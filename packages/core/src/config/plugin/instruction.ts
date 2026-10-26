@@ -3,12 +3,10 @@ export * as ConfigInstructionPlugin from "./instruction.js"
 import { define } from "@opencode/plugin/effect/plugin"
 import { FSUtil } from "@opencode/util/fs-util"
 import { Global } from "@opencode/util/global"
-import { sameDirectory } from "@opencode/util/path"
-import path, { dirname, join } from "path"
-import { Effect, FiberMap, PubSub, Semaphore, Stream } from "effect"
+import path, { join } from "path"
+import { Effect, Semaphore, Stream } from "effect"
 import { HttpClient, HttpClientRequest } from "effect/http"
 import { Config } from "../../config.js"
-import { Watcher } from "../../filesystem/watcher.js"
 import { InstructionDiscovery } from "../../instruction-discovery.js"
 import { Instructions } from "../../instructions/index.js"
 import { Location } from "../../location.js"
@@ -29,8 +27,6 @@ export const Plugin = define({
       const global = yield* Global.Service
       const http = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
       const location = yield* Location.Service
-      const changes = yield* PubSub.sliding<string>(1)
-      const watches = yield* FiberMap.make<string>()
       const lock = Semaphore.makeUnsafe(1)
       const start = yield* fs.resolve(location.directory)
       const root = yield* fs.resolve(location.project.directory)
@@ -42,22 +38,6 @@ export const Plugin = define({
       const configured: { sources: string[]; remote: Map<string, InstructionDiscovery.File> } = {
         sources: [],
         remote: new Map(),
-      }
-
-      const publish = (update: Watcher.Update) => PubSub.publish(changes, update.path).pipe(Effect.asVoid)
-      // The ancestor walk can reach the global file when the location sits
-      // beneath the global config dir; global: false excludes it there too.
-      const candidates = [
-        ...(discovery.global ? [globalFile] : []),
-        ...(project
-          ? ancestorDirectories(start, stop)
-              .map((directory) => join(directory, "AGENTS.md"))
-              .filter((file) => discovery.global || file !== globalFile)
-          : []),
-      ]
-      for (const file of new Set(candidates)) {
-        const updates = yield* config.watch({ path: file, type: "file" })
-        yield* updates.pipe(Stream.runForEach(publish), Effect.forkScoped({ startImmediately: true }))
       }
 
       // A missing file may be mid-save and is transient; a denied file (e.g. outside a sandbox grant) stays absent.
@@ -110,7 +90,7 @@ export const Plugin = define({
 
       const configuredSource = Effect.fn("ConfigInstructionPlugin.configuredSource")(function* () {
         const files: InstructionDiscovery.File[] = []
-        const watched = new Set<string>()
+        const seen = new Set<string>()
         for (const source of configured.sources) {
           if (isUrl(source)) {
             const file = configured.remote.get(source)
@@ -119,24 +99,15 @@ export const Plugin = define({
           }
           for (const item of (yield* match(source)).toSorted()) {
             const resolved = yield* fs.resolve(item)
-            if (watched.has(resolved)) continue
-            watched.add(resolved)
+            if (seen.has(resolved)) continue
+            seen.add(resolved)
             const file = yield* read(resolved)
             if (file instanceof InstructionDiscovery.File) files.push(file)
           }
         }
-        for (const [key] of Array.from(watches)) if (!watched.has(key)) yield* FiberMap.remove(watches, key)
-        for (const file of watched) {
-          const updates = yield* config.watch({ path: file, type: "file" })
-          yield* FiberMap.run(watches, file, updates.pipe(Stream.runForEach(publish)), {
-            onlyIfMissing: true,
-            startImmediately: true,
-          })
-        }
         return files
       })
 
-      // Remote instructions are fetched only when config loads, not on every file rescan.
       // A failed fetch keeps the last good copy or skips the URL, so an unreachable URL
       // never makes the whole instruction set unavailable.
       const reconfigure = Effect.fn("ConfigInstructionPlugin.reconfigure")(
@@ -179,7 +150,7 @@ export const Plugin = define({
         )
 
       const refresh = Effect.fn("ConfigInstructionPlugin.refresh")(
-        function* (file?: string) {
+        function* () {
           const sources = yield* Effect.all({
             global: isolate("global", globalSource()),
             project: isolate("project", projectSource()),
@@ -189,24 +160,10 @@ export const Plugin = define({
             Array.isArray(sources.global) && Array.isArray(sources.project) && Array.isArray(sources.configured)
               ? { type: "available", files: [...sources.global, ...sources.project, ...sources.configured] }
               : { type: "unavailable" }
-          if (!file) return
-          yield* Effect.logDebug("instructions rescanned", {
-            file,
-            instructions:
-              loaded.current.type === "available" ? loaded.current.files.map((item) => item.path) : "unavailable",
-          })
         },
-        (effect, ..._args: [file?: string]) => lock.withPermit(effect),
+        (effect) => lock.withPermit(effect),
       )
 
-      // Editor saves arrive as bursts of watcher events; settle before rescanning once. Subscribe
-      // before debouncing so no update slips through while the debounce starts its pull.
-      const updates = yield* PubSub.subscribe(changes)
-      yield* Stream.fromSubscription(updates).pipe(
-        Stream.debounce("100 millis"),
-        Stream.runForEach((file) => refresh(file).pipe(Effect.andThen(discovery.reload()))),
-        Effect.forkScoped({ startImmediately: true }),
-      )
       // Subscribe before the first config read so an update in between still triggers a reload.
       yield* ctx.event.subscribe().pipe(
         Stream.filter((event) => event.type === "config.updated"),
@@ -232,14 +189,6 @@ export const Plugin = define({
     )
   }),
 })
-
-// `start` keeps the client's spelling while `stop` may come from git, so a Windows drive
-// letter can differ only in case (`c:\repo` vs `C:\repo`). Compare the way FSUtil.contains
-// admitted `start` beneath `stop`, or the walk passes `stop` and recurses at the drive root.
-function ancestorDirectories(start: string, stop: string): string[] {
-  if (sameDirectory(start, stop)) return [start]
-  return [start, ...ancestorDirectories(dirname(start), stop)]
-}
 
 function isUrl(source: string) {
   return URL.canParse(source) && /^https?:$/.test(new URL(source).protocol)

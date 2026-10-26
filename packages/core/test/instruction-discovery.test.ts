@@ -7,7 +7,6 @@ import { AppNodeBuilder } from "@opencode/core/effect/app-node-builder"
 import { Bus } from "@opencode/core/bus"
 import { Config } from "@opencode/core/config"
 import { ConfigInstructionPlugin } from "@opencode/core/config/plugin/instruction"
-import { Watcher } from "@opencode/core/filesystem/watcher"
 import { InstructionDiscovery } from "@opencode/core/instruction-discovery"
 import { Location } from "@opencode/core/location"
 import { AbsolutePath } from "@opencode/core/schema"
@@ -34,19 +33,10 @@ const instructionLayer = (input: {
   http?: HttpClient.HttpClient
   project?: boolean
 }) => {
-  const watcher = Watcher.testLayer
   const config = Config.testLayer(input.instructions ? [configured(input.instructions)] : [])
   return Layer.mergeAll(
     AppNodeBuilder.build(
-      LayerNode.group([
-        InstructionDiscovery.node,
-        Bus.node,
-        Config.node,
-        FSUtil.node,
-        Global.node,
-        Location.node,
-        Watcher.node,
-      ]),
+      LayerNode.group([InstructionDiscovery.node, Bus.node, Config.node, FSUtil.node, Global.node, Location.node]),
       [
         Config.node.replace(config),
         InstructionDiscovery.node.replace(InstructionDiscovery.configured({ project: input.project })),
@@ -59,11 +49,9 @@ const instructionLayer = (input: {
             : tempGlobalLayer,
         ),
         Location.node.replace(input.locationServiceLayer),
-        Watcher.node.replace(watcher),
         ...(input.filesystemLayer ? [FSUtil.node.replace(input.filesystemLayer)] : []),
       ],
     ),
-    watcher,
     config,
     Layer.succeed(HttpClient.HttpClient, input.http ?? respond(() => new Response(null, { status: 404 }))),
   )
@@ -91,13 +79,6 @@ const respond = (handler: (url: string) => Response) =>
   HttpClient.make((request) => Effect.succeed(HttpClientResponse.fromWeb(request, handler(request.url))))
 
 const file = (path: string, content: string) => new InstructionDiscovery.File({ path, content })
-
-function emitAndWait(update: Watcher.Update) {
-  return Effect.gen(function* () {
-    const watcher = yield* Watcher.Test
-    yield* triggerAndWait(watcher.emit(update))
-  })
-}
 
 function triggerAndWait<E, R>(trigger: Effect.Effect<void, E, R>) {
   return Effect.gen(function* () {
@@ -195,7 +176,7 @@ describe("InstructionDiscovery", () => {
 })
 
 describe("ConfigInstructionPlugin.Plugin", () => {
-  it.live("loads global and upward project files and rescans them on change", () =>
+  it.live("loads global and upward project files", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
       (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
@@ -223,19 +204,6 @@ describe("ConfigInstructionPlugin.Plugin", () => {
           })
 
           const discovery = yield* start()
-          const watcher = yield* Watcher.Test
-          expect(yield* watcher.subscriptions()).toEqual([
-            { path: globalFile, type: "file" },
-            { path: packageFile, type: "file" },
-            { path: path.join(project, "packages", "AGENTS.md"), type: "file" },
-            { path: projectFile, type: "file" },
-            { path: sharedFile, type: "file" },
-            { path: path.join(home, "AGENTS.md"), type: "file" },
-          ])
-          expect(yield* watcher.subscriptions()).not.toContainEqual({
-            path: path.join(tmp.path, "AGENTS.md"),
-            type: "file",
-          })
           const initialized = yield* readInitial(yield* discovery.load())
           expect(initialized.text).toBe(
             [
@@ -246,28 +214,6 @@ describe("ConfigInstructionPlugin.Plugin", () => {
             ].join("\n\n"),
           )
           expect(initialized.text).not.toContain("outside")
-
-          yield* Effect.promise(() => fs.writeFile(packageFile, "changed"))
-          yield* emitAndWait({ type: "update", path: packageFile })
-          const changed = (yield* readUpdate(yield* discovery.load(), initialized)).text
-          expect(changed).toContain(`The instructions changed:\nInstructions from: ${packageFile}\nchanged`)
-          expect(changed).not.toContain(`Instructions from: ${globalFile}\nglobal`)
-
-          yield* Effect.promise(() => fs.rm(packageFile))
-          yield* emitAndWait({ type: "delete", path: packageFile })
-          const removed = (yield* readUpdate(yield* discovery.load(), initialized)).text
-          expect(removed).toContain(`The instructions from ${packageFile} no longer apply.`)
-          expect(removed).not.toContain(`Instructions from: ${globalFile}\nglobal`)
-
-          yield* Effect.promise(() => fs.rm(globalFile))
-          yield* emitAndWait({ type: "delete", path: globalFile })
-          yield* Effect.promise(() => fs.rm(projectFile))
-          yield* emitAndWait({ type: "delete", path: projectFile })
-          yield* Effect.promise(() => fs.rm(sharedFile))
-          yield* emitAndWait({ type: "delete", path: sharedFile })
-          expect((yield* readUpdate(yield* discovery.load(), initialized)).text).toBe(
-            "Previously loaded instructions no longer apply.",
-          )
         }).pipe(
           Effect.provide(
             instructionLayer({
@@ -303,7 +249,6 @@ describe("ConfigInstructionPlugin.Plugin", () => {
         const absolute = path.join(tmp.path, "absolute.md")
         const homeFile = path.join(tmp.path, "home.md")
         const remote = "https://example.test/instructions.md"
-        const requests: string[] = []
         return Effect.gen(function* () {
           yield* Effect.promise(async () => {
             await fs.mkdir(path.dirname(first), { recursive: true })
@@ -330,14 +275,6 @@ describe("ConfigInstructionPlugin.Plugin", () => {
               `Instructions from: ${remote}\nremote`,
             ].join("\n\n"),
           )
-
-          yield* Effect.promise(() => fs.writeFile(first, "changed"))
-          yield* emitAndWait({ type: "update", path: first })
-          expect((yield* readUpdate(yield* discovery.load(), initialized)).text).toBe(
-            `The instructions changed:\nInstructions from: ${first}\nchanged`,
-          )
-          // File rescans reuse fetched URLs instead of requesting them again.
-          expect(requests).toHaveLength(2)
         }).pipe(
           Effect.provide(
             instructionLayer({
@@ -351,10 +288,7 @@ describe("ConfigInstructionPlugin.Plugin", () => {
                 "missing.md",
                 "https://example.test/missing.md",
               ],
-              http: respond((url) => {
-                requests.push(url)
-                return url === remote ? new Response("remote") : new Response(null, { status: 404 })
-              }),
+              http: respond((url) => (url === remote ? new Response("remote") : new Response(null, { status: 404 }))),
               locationServiceLayer: Layer.succeed(
                 Location.Service,
                 Location.Service.of(
@@ -442,54 +376,7 @@ describe("ConfigInstructionPlugin.Plugin", () => {
     ),
   )
 
-  it.live("discovers a newly created instruction file above the project root", () =>
-    Effect.acquireRelease(
-      Effect.promise(() => tmpdir()),
-      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
-    ).pipe(
-      Effect.flatMap((tmp) => {
-        const home = path.join(tmp.path, "home")
-        const shared = path.join(home, "code")
-        const project = path.join(shared, "repo")
-        const intermediate = path.join(shared, "AGENTS.md")
-        const directory = path.join(project, "core")
-        const projectFile = path.join(project, "AGENTS.md")
-        return Effect.gen(function* () {
-          yield* Effect.promise(() => fs.mkdir(directory, { recursive: true }))
-          yield* Effect.promise(() => fs.writeFile(projectFile, "project"))
-          const discovery = yield* start()
-          expect((yield* readInitial(yield* discovery.load())).text).toBe(`Instructions from: ${projectFile}\nproject`)
-
-          yield* Effect.promise(() => fs.writeFile(intermediate, "intermediate"))
-          yield* emitAndWait({ type: "create", path: intermediate })
-
-          expect((yield* readInitial(yield* discovery.load())).text).toBe(
-            [`Instructions from: ${projectFile}\nproject`, `Instructions from: ${intermediate}\nintermediate`].join(
-              "\n\n",
-            ),
-          )
-        }).pipe(
-          Effect.provide(
-            instructionLayer({
-              config: path.join(tmp.path, "global"),
-              home,
-              locationServiceLayer: Layer.succeed(
-                Location.Service,
-                Location.Service.of(
-                  location(
-                    { directory: AbsolutePath.make(directory) },
-                    { projectDirectory: AbsolutePath.make(project) },
-                  ),
-                ),
-              ),
-            }),
-          ),
-        )
-      }),
-    ),
-  )
-
-  it.live("stops instruction candidates at the project root outside home", () =>
+  it.live("stops instruction discovery at the project root outside home", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
       (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
@@ -499,16 +386,15 @@ describe("ConfigInstructionPlugin.Plugin", () => {
         const home = path.join(tmp.path, "home")
         const project = path.join(tmp.path, "scratch", "repo")
         const directory = path.join(project, "packages", "core")
+        const projectFile = path.join(project, "AGENTS.md")
         return Effect.gen(function* () {
-          yield* Effect.promise(() => fs.mkdir(directory, { recursive: true }))
-          yield* start()
-          const watcher = yield* Watcher.Test
-          expect(yield* watcher.subscriptions()).toEqual([
-            { path: path.join(global, "AGENTS.md"), type: "file" },
-            { path: path.join(directory, "AGENTS.md"), type: "file" },
-            { path: path.join(project, "packages", "AGENTS.md"), type: "file" },
-            { path: path.join(project, "AGENTS.md"), type: "file" },
-          ])
+          yield* Effect.promise(async () => {
+            await fs.mkdir(directory, { recursive: true })
+            await fs.writeFile(projectFile, "project")
+            await fs.writeFile(path.join(tmp.path, "scratch", "AGENTS.md"), "outside")
+          })
+          const discovery = yield* start()
+          expect((yield* readInitial(yield* discovery.load())).text).toBe(`Instructions from: ${projectFile}\nproject`)
         }).pipe(
           Effect.provide(
             instructionLayer({
@@ -548,11 +434,6 @@ describe("ConfigInstructionPlugin.Plugin", () => {
             yield* Effect.promise(() => fs.writeFile(path.join(project, "AGENTS.md"), "project"))
             yield* Effect.promise(() => fs.writeFile(path.join(tmp.path, "AGENTS.md"), "outside"))
             const discovery = yield* start()
-            const watcher = yield* Watcher.Test
-            expect(yield* watcher.subscriptions()).toEqual([
-              { path: path.join(global, "AGENTS.md"), type: "file" },
-              { path: path.join(directory, "AGENTS.md"), type: "file" },
-            ])
             expect((yield* readInitial(yield* discovery.load())).text).toBe(
               `Instructions from: ${path.join(directory, "AGENTS.md")}\nproject`,
             )

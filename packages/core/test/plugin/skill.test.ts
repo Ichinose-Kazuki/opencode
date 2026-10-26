@@ -2,7 +2,7 @@ import { describe, expect } from "bun:test"
 import { AppNodeBuilder } from "@opencode/core/effect/app-node-builder"
 import { Config } from "@opencode/core/config"
 import { Document, Info } from "@opencode/schema/config"
-import { Effect, Layer, Stream } from "effect"
+import { Effect, Layer } from "effect"
 import { SkillPlugin } from "@opencode/core/plugin/skill"
 import { Skill } from "@opencode/core/skill"
 import { testEffect } from "../lib/effect"
@@ -14,8 +14,6 @@ const config = (plugins: Info["plugins"] = []) =>
     Config.Service,
     Config.Service.of({
       entries: () => Effect.succeed([new Document({ type: "document", info: new Info({ plugins }) })]),
-      changes: () => Stream.never,
-      watch: () => Effect.succeed(Stream.empty),
     }),
   )
 

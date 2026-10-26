@@ -126,7 +126,6 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
             ),
             file: process.env.OPENCODE_CONFIG,
             content: process.env.OPENCODE_CONFIG_CONTENT,
-            watch: !truthy(process.env.OPENCODE_DISABLE_CONFIG_WATCH),
           },
           windows: {
             gitbash: process.env.OPENCODE_GIT_BASH_PATH,

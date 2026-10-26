@@ -14,8 +14,6 @@ describe("ConfigEntryObserver", () => {
       const reloaded = yield* Deferred.make<void>()
       const config = Config.Service.of({
         entries: () => Ref.get(current),
-        changes: () => Stream.empty,
-        watch: () => Effect.succeed(Stream.empty),
       })
       const event = {
         subscribe: () =>

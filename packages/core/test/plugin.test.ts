@@ -10,7 +10,6 @@ import { Plugin } from "@opencode/core/plugin"
 import { PluginModule } from "@opencode/core/plugin/module"
 import { Session } from "@opencode/core/session"
 import { SessionSchema } from "@opencode/core/session/schema"
-import { Watcher } from "@opencode/core/filesystem/watcher"
 import { fromPromise } from "@opencode/plugin/promise/adapter"
 import { testEffect } from "./lib/effect"
 import { PluginTestLayer } from "./plugin/fixture"
@@ -92,7 +91,7 @@ it.live("loads a local plugin with its configured options", () =>
     const plugins = yield* Plugin.Service
     const commands = yield* Command.Service
     yield* plugins.awaitActivation
-    const modules = yield* PluginModule.make().pipe(Effect.provide(Watcher.testLayer))
+    const modules = yield* PluginModule.make()
     const definition = yield* modules.load({
       type: "add",
       target: path.join(import.meta.dir, "plugin/fixtures/greeting.ts"),
