@@ -1,5 +1,5 @@
 import { createStore, unwrap } from "solid-js/store"
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js"
 import { usePaste, useRenderer, useTerminalDimensions } from "@opentui/solid"
 import {
   decodePasteBytes,
@@ -63,10 +63,12 @@ export function FormPrompt(props: { form: FormWithLocation }) {
   const dimensions = useTerminalDimensions()
   const keymap = Keymap.use()
   const enabled = useInteractivity()
-  const active = () => enabled() && keymap.mode.current() === FORM_MODE
+  const [collapsed, setCollapsed] = createSignal(false)
+  const active = () => enabled() && !collapsed() && keymap.mode.current() === FORM_MODE
   const config = useConfig().data
   const clipboard = useClipboard()
   const toast = useToast()
+  const shortcuts = Keymap.useShortcuts()
   const configuredFields = props.form.fields.filter(isFormAnswerField)
   const initial = formInitialValues(props.form.fields)
   const draft = drafts.get(props.form.id)
@@ -470,6 +472,21 @@ export function FormPrompt(props: { form: FormWithLocation }) {
       .catch(showError)
   }
 
+  function toggleCollapsed() {
+    if (collapsed()) {
+      setCollapsed(false)
+      return
+    }
+    // Collapsing unmounts the answer editor, so commit its text first. An invalid
+    // answer keeps the panel expanded instead of dropping what was typed.
+    if ((store.editing || textual()) && textarea && !textarea.isDestroyed) {
+      const text = textarea.plainText.trim()
+      if (text && !commitInput(text)) return
+    }
+    setStore("editing", false)
+    setCollapsed(true)
+  }
+
   function showError(error: unknown) {
     setStore("error", errorMessage(error))
   }
@@ -533,11 +550,16 @@ export function FormPrompt(props: { form: FormWithLocation }) {
     )
   }
 
-  onMount(() => onCleanup(keymap.mode.push(FORM_MODE)))
+  // A collapsed panel hands the keyboard back to the normal session keys, so the
+  // form mode is held only while it is expanded.
+  createEffect(() => {
+    if (collapsed()) return
+    onCleanup(keymap.mode.push(FORM_MODE))
+  })
 
   Keymap.createLayer(() => ({
     mode: FORM_MODE,
-    enabled: !confirm() && answerField() !== undefined,
+    enabled: !collapsed() && !confirm() && answerField() !== undefined,
     commands: [
       {
         id: "prompt.paste",
@@ -555,7 +577,7 @@ export function FormPrompt(props: { form: FormWithLocation }) {
   Keymap.createLayer(() => ({
     mode: FORM_MODE,
     priority: 1,
-    enabled: (store.editing || textual()) && !confirm(),
+    enabled: !collapsed() && (store.editing || textual()) && !confirm(),
     commands: [
       {
         id: "prompt.clear",
@@ -646,7 +668,7 @@ export function FormPrompt(props: { form: FormWithLocation }) {
 
     return {
       mode: FORM_MODE,
-      enabled: !store.editing && !textual(),
+      enabled: !collapsed() && !store.editing && !textual(),
       commands: [
         {
           id: "app.exit",
@@ -764,6 +786,46 @@ export function FormPrompt(props: { form: FormWithLocation }) {
     }
   })
 
+  Keymap.createLayer(() => ({
+    mode: FORM_MODE,
+    enabled: () => !collapsed(),
+    commands: [
+      {
+        id: "question.prompt.collapse",
+        title: "Toggle question form",
+        group: "Form",
+        bind: false as const,
+        run: toggleCollapsed,
+      },
+    ],
+    bindings: ["question.prompt.collapse"],
+  }))
+
+  // A collapsed panel leaves the normal session keys in charge, so this layer
+  // keeps the toggle and the dismissal reachable from the session screen.
+  Keymap.createLayer(() => ({
+    mode: "base",
+    enabled: collapsed,
+    commands: [
+      {
+        id: "question.prompt.collapse",
+        title: "Toggle question form",
+        group: "Question",
+        bind: false as const,
+        run: toggleCollapsed,
+      },
+      {
+        id: "app.exit",
+        title: "Dismiss question",
+        group: "Question",
+        bind: false as const,
+        run: cancel,
+      },
+      { bind: "escape", title: "Dismiss question", group: "Question", run: cancel },
+    ],
+    bindings: ["question.prompt.collapse", "app.exit"],
+  }))
+
   return (
     <box
       backgroundColor={theme.background.raised.base}
@@ -771,405 +833,427 @@ export function FormPrompt(props: { form: FormWithLocation }) {
       borderColor={theme.background.action.primary.focused}
       customBorderChars={SplitBorder.customBorderChars}
     >
-      <box gap={1} paddingLeft={1} paddingRight={3} paddingTop={1} paddingBottom={1}>
-        <box paddingLeft={1}>
-          <text fg={theme.text.muted}>{props.form.title}</text>
+      <Show when={collapsed()}>
+        <box paddingLeft={1} paddingRight={3}>
+          <text>
+            <span style={{ fg: theme.text.base }}>▸ {props.form.title}</span>
+            <span style={{ fg: theme.text.muted }}>{" · "}</span>
+            <span style={{ fg: theme.text.base }}>{shortcuts.get("question.prompt.collapse")}</span>
+            <span style={{ fg: theme.text.muted }}>
+              {" expand · "}
+              {answered()}/{fields().length}
+              {" · esc dismiss"}
+            </span>
+          </text>
         </box>
-        <Show when={message()}>
+      </Show>
+      <Show when={!collapsed()}>
+        <box gap={1} paddingLeft={1} paddingRight={3} paddingTop={1} paddingBottom={1}>
           <box paddingLeft={1}>
-            <text fg={theme.text.base}>{message()}</text>
+            <text fg={theme.text.muted}>{props.form.title}</text>
           </box>
-        </Show>
-        <Show when={!single() && !tabbed()}>
-          <box flexDirection="row" gap={3} paddingLeft={1}>
-            <text fg={theme.text.muted}>
-              {confirm() ? "Review" : `Field ${Math.min(store.tab, fields().length - 1) + 1} of ${fields().length}`}
-            </text>
-            <Show when={fields().length > 0}>
-              <text fg={theme.text.muted}>
-                · {answered()}/{fields().length} completed
-              </text>
-            </Show>
-          </box>
-        </Show>
-        <Show when={!single() && tabbed()}>
-          <box flexDirection="row" paddingLeft={1}>
-            <For each={fields()}>
-              {(item, index) => {
-                const isTab = () => index() === store.tab
-                const color = () =>
-                  isTab()
-                    ? theme.text.base
-                    : tabHover() === index()
-                      ? theme.text.formfield.focused
-                      : theme.text.muted
-                return (
-                  <box
-                    paddingRight={2}
-                    backgroundColor={theme.background.raised.base}
-                    onMouseOver={() => setTabHover(index())}
-                    onMouseOut={() => setTabHover(null)}
-                    onMouseUp={() => {
-                      if (renderer.getSelection()?.getSelectedText()) return
-                      selectTabFromMouse(item)
-                    }}
-                  >
-                    <text fg={color()} attributes={isTab() ? TextAttributes.BOLD : undefined}>
-                      {truncate(formLabel(item), 24)}
-                    </text>
-                  </box>
-                )
-              }}
-            </For>
-            <box
-              backgroundColor={theme.background.raised.base}
-              onMouseOver={() => setTabHover("confirm")}
-              onMouseOut={() => setTabHover(null)}
-              onMouseUp={() => {
-                if (renderer.getSelection()?.getSelectedText()) return
-                selectTabFromMouse()
-              }}
-            >
-              <text
-                fg={
-                  confirm()
-                    ? theme.text.base
-                    : tabHover() === "confirm"
-                      ? theme.text.formfield.focused
-                      : theme.text.muted
-                }
-                attributes={confirm() ? TextAttributes.BOLD : undefined}
-              >
-                Submit
-              </text>
+          <Show when={message()}>
+            <box paddingLeft={1}>
+              <text fg={theme.text.base}>{message()}</text>
             </box>
-          </box>
-        </Show>
-
-        <Show when={!confirm() && externalField()}>
-          {(external) => (
-            <box paddingLeft={1} gap={1}>
-              <Show when={external().title}>
-                <text fg={theme.text.base}>{external().title}</text>
+          </Show>
+          <Show when={!single() && !tabbed()}>
+            <box flexDirection="row" gap={3} paddingLeft={1}>
+              <text fg={theme.text.muted}>
+                {confirm() ? "Review" : `Field ${Math.min(store.tab, fields().length - 1) + 1} of ${fields().length}`}
+              </text>
+              <Show when={fields().length > 0}>
+                <text fg={theme.text.muted}>
+                  · {answered()}/{fields().length} completed
+                </text>
               </Show>
-              <Show when={external().description}>
-                <text fg={theme.text.muted}>{external().description}</text>
-              </Show>
-              <text
-                fg={theme.text.action.primary.base}
+            </box>
+          </Show>
+          <Show when={!single() && tabbed()}>
+            <box flexDirection="row" paddingLeft={1}>
+              <For each={fields()}>
+                {(item, index) => {
+                  const isTab = () => index() === store.tab
+                  const color = () =>
+                    isTab()
+                      ? theme.text.base
+                      : tabHover() === index()
+                        ? theme.text.formfield.focused
+                        : theme.text.muted
+                  return (
+                    <box
+                      paddingRight={2}
+                      backgroundColor={theme.background.raised.base}
+                      onMouseOver={() => setTabHover(index())}
+                      onMouseOut={() => setTabHover(null)}
+                      onMouseUp={() => {
+                        if (renderer.getSelection()?.getSelectedText()) return
+                        selectTabFromMouse(item)
+                      }}
+                    >
+                      <text fg={color()} attributes={isTab() ? TextAttributes.BOLD : undefined}>
+                        {truncate(formLabel(item), 24)}
+                      </text>
+                    </box>
+                  )
+                }}
+              </For>
+              <box
+                backgroundColor={theme.background.raised.base}
+                onMouseOver={() => setTabHover("confirm")}
+                onMouseOut={() => setTabHover(null)}
                 onMouseUp={() => {
                   if (renderer.getSelection()?.getSelectedText()) return
-                  openExternal()
+                  selectTabFromMouse()
                 }}
               >
-                {external().url}
-              </text>
-              <text
-                fg={store.answers[external().key] === true ? theme.text.feedback.success.base : theme.text.muted}
-              >
-                {store.answers[external().key] === true
-                  ? "✓ Acknowledged"
-                  : store.externalReady[external().key]
-                    ? "Complete the external action, then press enter to confirm."
-                    : "Open or copy the URL, complete the external action, then confirm."}
-              </text>
-            </box>
-          )}
-        </Show>
-
-        <Show when={!confirm() && answerField()}>
-          <box paddingLeft={1} gap={1}>
-            <box>
-              <text fg={theme.text.base}>{answerField()!.description ?? formLabel(answerField()!)}</text>
-            </box>
-            <Show when={textual() ? answerField()!.key : undefined} keyed>
-              <box paddingLeft={1}>
-                <textarea
-                  cursorStyle={config.cursor}
-                  ref={(val: TextareaRenderable) => {
-                    textarea = val
-                    val.traits = { status: "ANSWER" }
-                    queueMicrotask(() => {
-                      if (val.isDestroyed) return
-                      val.gotoLineEnd()
-                      setInputTarget(val)
-                    })
-                  }}
-                  initialValue={
-                    input() || formDisplayValue(answerField()!, store.answers[answerField()!.key], "(none)")
+                <text
+                  fg={
+                    confirm()
+                      ? theme.text.base
+                      : tabHover() === "confirm"
+                        ? theme.text.formfield.focused
+                        : theme.text.muted
                   }
-                  placeholder={placeholder()}
-                  placeholderColor={theme.text.muted}
-                  minHeight={1}
-                  maxHeight={6}
-                  textColor={theme.text.base}
-                  focusedTextColor={theme.text.base}
-                  cursorColor={theme.text.base}
-                />
+                  attributes={confirm() ? TextAttributes.BOLD : undefined}
+                >
+                  Submit
+                </text>
               </box>
-            </Show>
-            <Show when={!textual()}>
+            </box>
+          </Show>
+
+          <Show when={!confirm() && externalField()}>
+            {(external) => (
+              <box paddingLeft={1} gap={1}>
+                <Show when={external().title}>
+                  <text fg={theme.text.base}>{external().title}</text>
+                </Show>
+                <Show when={external().description}>
+                  <text fg={theme.text.muted}>{external().description}</text>
+                </Show>
+                <text
+                  fg={theme.text.action.primary.base}
+                  onMouseUp={() => {
+                    if (renderer.getSelection()?.getSelectedText()) return
+                    openExternal()
+                  }}
+                >
+                  {external().url}
+                </text>
+                <text
+                  fg={store.answers[external().key] === true ? theme.text.feedback.success.base : theme.text.muted}
+                >
+                  {store.answers[external().key] === true
+                    ? "✓ Acknowledged"
+                    : store.externalReady[external().key]
+                      ? "Complete the external action, then press enter to confirm."
+                      : "Open or copy the URL, complete the external action, then confirm."}
+                </text>
+              </box>
+            )}
+          </Show>
+
+          <Show when={!confirm() && answerField()}>
+            <box paddingLeft={1} gap={1}>
               <box>
-                <For each={rows()}>
-                  {(row, i) => {
-                    const active = () => i() === store.selected
-                    const picked = () => {
-                      const value = store.answers[answerField()?.key ?? ""]
-                      if (Array.isArray(value)) return value.includes(String(row.value))
-                      return value === row.value
+                <text fg={theme.text.base}>{answerField()!.description ?? formLabel(answerField()!)}</text>
+              </box>
+              <Show when={textual() ? answerField()!.key : undefined} keyed>
+                <box paddingLeft={1}>
+                  <textarea
+                    cursorStyle={config.cursor}
+                    ref={(val: TextareaRenderable) => {
+                      textarea = val
+                      val.traits = { status: "ANSWER" }
+                      queueMicrotask(() => {
+                        if (val.isDestroyed) return
+                        val.gotoLineEnd()
+                        setInputTarget(val)
+                      })
+                    }}
+                    initialValue={
+                      input() || formDisplayValue(answerField()!, store.answers[answerField()!.key], "(none)")
                     }
-                    return (
-                      <box
-                        onMouseMove={() => setStore("selected", i())}
-                        onMouseDown={() => setStore("selected", i())}
-                        onMouseUp={() => {
-                          if (renderer.getSelection()?.getSelectedText()) return
-                          selectOption()
-                        }}
-                      >
-                        <box flexDirection="row">
-                          <box
-                            backgroundColor={theme.background.raised.base}
-                            paddingRight={1}
-                          >
-                            <text
-                              fg={active() ? theme.text.formfield.focused : theme.text.muted}
-                            >{`${i() + 1}.`}</text>
-                          </box>
-                          <box
-                            backgroundColor={theme.background.raised.base}
-                            flexDirection="row"
-                          >
-                            <Show when={multi()}>
+                    placeholder={placeholder()}
+                    placeholderColor={theme.text.muted}
+                    minHeight={1}
+                    maxHeight={6}
+                    textColor={theme.text.base}
+                    focusedTextColor={theme.text.base}
+                    cursorColor={theme.text.base}
+                  />
+                </box>
+              </Show>
+              <Show when={!textual()}>
+                <box>
+                  <For each={rows()}>
+                    {(row, i) => {
+                      const active = () => i() === store.selected
+                      const picked = () => {
+                        const value = store.answers[answerField()?.key ?? ""]
+                        if (Array.isArray(value)) return value.includes(String(row.value))
+                        return value === row.value
+                      }
+                      return (
+                        <box
+                          onMouseMove={() => setStore("selected", i())}
+                          onMouseDown={() => setStore("selected", i())}
+                          onMouseUp={() => {
+                            if (renderer.getSelection()?.getSelectedText()) return
+                            selectOption()
+                          }}
+                        >
+                          <box flexDirection="row">
+                            <box
+                              backgroundColor={theme.background.raised.base}
+                              paddingRight={1}
+                            >
                               <text
-                                width={4}
-                                flexShrink={0}
-                                fg={
-                                  active()
-                                    ? theme.text.formfield.focused
-                                    : picked()
-                                      ? theme.text.formfield.selected
-                                      : theme.text.muted
-                                }
-                              >
-                                [{picked() ? "✓" : " "}]
+                                fg={active() ? theme.text.formfield.focused : theme.text.muted}
+                              >{`${i() + 1}.`}</text>
+                            </box>
+                            <box
+                              backgroundColor={theme.background.raised.base}
+                              flexDirection="row"
+                            >
+                              <Show when={multi()}>
+                                <text
+                                  width={4}
+                                  flexShrink={0}
+                                  fg={
+                                    active()
+                                      ? theme.text.formfield.focused
+                                      : picked()
+                                        ? theme.text.formfield.selected
+                                        : theme.text.muted
+                                  }
+                                >
+                                  [{picked() ? "✓" : " "}]
+                                </text>
+                              </Show>
+                              <text fg={active() ? theme.text.formfield.focused : theme.text.formfield.base}>
+                                {row.label}
                               </text>
+                            </box>
+                            <Show when={!multi()}>
+                              <text fg={theme.text.formfield.selected}>{picked() ? " ✓" : ""}</text>
                             </Show>
-                            <text fg={active() ? theme.text.formfield.focused : theme.text.formfield.base}>
-                              {row.label}
-                            </text>
                           </box>
-                          <Show when={!multi()}>
-                            <text fg={theme.text.formfield.selected}>{picked() ? " ✓" : ""}</text>
+                          <Show when={row.description}>
+                            <box paddingLeft={multi() ? 7 : 3}>
+                              <text fg={theme.text.muted}>{row.description}</text>
+                            </box>
                           </Show>
                         </box>
-                        <Show when={row.description}>
-                          <box paddingLeft={multi() ? 7 : 3}>
-                            <text fg={theme.text.muted}>{row.description}</text>
-                          </box>
-                        </Show>
-                      </box>
-                    )
-                  }}
-                </For>
-                <Show when={custom()}>
-                  <box
-                    onMouseMove={() => setStore("selected", rows().length)}
-                    onMouseDown={() => setStore("selected", rows().length)}
-                    onMouseUp={() => {
-                      if (renderer.getSelection()?.getSelectedText()) return
-                      selectOption()
+                      )
                     }}
-                  >
-                    <box flexDirection="row">
-                      <box
-                        backgroundColor={theme.background.raised.base}
-                        paddingRight={1}
-                      >
-                        <text fg={other() ? theme.text.formfield.focused : theme.text.muted}>
-                          {`${rows().length + 1}.`}
-                        </text>
-                      </box>
-                      <box
-                        flexDirection="row"
-                        flexGrow={1}
-                        backgroundColor={theme.background.raised.base}
-                      >
-                        <Show when={multi()}>
-                          <text
-                            width={4}
-                            flexShrink={0}
-                            fg={
-                              other()
-                                ? theme.text.formfield.focused
-                                : customChecked()
-                                  ? theme.text.formfield.selected
-                                  : theme.text.muted
+                  </For>
+                  <Show when={custom()}>
+                    <box
+                      onMouseMove={() => setStore("selected", rows().length)}
+                      onMouseDown={() => setStore("selected", rows().length)}
+                      onMouseUp={() => {
+                        if (renderer.getSelection()?.getSelectedText()) return
+                        selectOption()
+                      }}
+                    >
+                      <box flexDirection="row">
+                        <box
+                          backgroundColor={theme.background.raised.base}
+                          paddingRight={1}
+                        >
+                          <text fg={other() ? theme.text.formfield.focused : theme.text.muted}>
+                            {`${rows().length + 1}.`}
+                          </text>
+                        </box>
+                        <box
+                          flexDirection="row"
+                          flexGrow={1}
+                          backgroundColor={theme.background.raised.base}
+                        >
+                          <Show when={multi()}>
+                            <text
+                              width={4}
+                              flexShrink={0}
+                              fg={
+                                other()
+                                  ? theme.text.formfield.focused
+                                  : customChecked()
+                                    ? theme.text.formfield.selected
+                                    : theme.text.muted
+                              }
+                            >
+                              [{customChecked() ? "✓" : " "}]
+                            </text>
+                          </Show>
+                          <Show
+                            when={store.editing}
+                            fallback={
+                              <>
+                                <text fg={other() ? theme.text.formfield.focused : theme.text.formfield.base}>
+                                  {input() || "Type your own answer"}
+                                </text>
+                                <Show when={!multi() && customPicked()}>
+                                  <text fg={theme.text.formfield.selected}>✓</text>
+                                </Show>
+                              </>
                             }
                           >
-                            [{customChecked() ? "✓" : " "}]
-                          </text>
-                        </Show>
-                        <Show
-                          when={store.editing}
-                          fallback={
-                            <>
-                              <text fg={other() ? theme.text.formfield.focused : theme.text.formfield.base}>
-                                {input() || "Type your own answer"}
-                              </text>
-                              <Show when={!multi() && customPicked()}>
-                                <text fg={theme.text.formfield.selected}>✓</text>
-                              </Show>
-                            </>
-                          }
-                        >
-                          <textarea
-                            flexGrow={1}
-                            cursorStyle={config.cursor}
-                            ref={(val: TextareaRenderable) => {
-                              textarea = val
-                              val.traits = { status: "ANSWER" }
-                              queueMicrotask(() => {
-                                if (val.isDestroyed) return
-                                val.setText(input())
-                                val.gotoLineEnd()
-                                setInputTarget(val)
-                              })
-                            }}
-                            initialValue={input()}
-                            placeholder="Type your own answer"
-                            placeholderColor={theme.text.muted}
-                            minHeight={1}
-                            maxHeight={6}
-                            textColor={theme.text.formfield.focused}
-                            focusedTextColor={theme.text.formfield.focused}
-                            cursorColor={theme.text.formfield.focused}
-                            onContentChange={(value) => {
-                              const current = answerField()
-                              if (!current || !textarea || textarea.isDestroyed) return
-                              updateCustom(current, typeof value === "string" ? value : textarea.plainText)
-                            }}
-                          />
-                        </Show>
+                            <textarea
+                              flexGrow={1}
+                              cursorStyle={config.cursor}
+                              ref={(val: TextareaRenderable) => {
+                                textarea = val
+                                val.traits = { status: "ANSWER" }
+                                queueMicrotask(() => {
+                                  if (val.isDestroyed) return
+                                  val.setText(input())
+                                  val.gotoLineEnd()
+                                  setInputTarget(val)
+                                })
+                              }}
+                              initialValue={input()}
+                              placeholder="Type your own answer"
+                              placeholderColor={theme.text.muted}
+                              minHeight={1}
+                              maxHeight={6}
+                              textColor={theme.text.formfield.focused}
+                              focusedTextColor={theme.text.formfield.focused}
+                              cursorColor={theme.text.formfield.focused}
+                              onContentChange={(value) => {
+                                const current = answerField()
+                                if (!current || !textarea || textarea.isDestroyed) return
+                                updateCustom(current, typeof value === "string" ? value : textarea.plainText)
+                              }}
+                            />
+                          </Show>
+                        </box>
                       </box>
                     </box>
-                  </box>
-                </Show>
-              </box>
-            </Show>
-          </box>
-        </Show>
+                  </Show>
+                </box>
+              </Show>
+            </box>
+          </Show>
 
-        <Show when={confirm()}>
-          <scrollbox
-            maxHeight={reviewMaxHeight()}
-            contentOptions={{ minHeight: 0 }}
-            scrollbarOptions={{ visible: false }}
-            ref={(r: ScrollBoxRenderable) => (review = r)}
-          >
-            <box
-              onSizeChange={function (this: BoxRenderable) {
-                setReviewContentHeight(this.height)
-              }}
+          <Show when={confirm()}>
+            <scrollbox
+              maxHeight={reviewMaxHeight()}
+              contentOptions={{ minHeight: 0 }}
+              scrollbarOptions={{ visible: false }}
+              ref={(r: ScrollBoxRenderable) => (review = r)}
             >
-              <For each={fields()}>
-                {(item) => {
-                  if (item.type === "external") {
-                    const acknowledged = () => store.answers[item.key] === true
+              <box
+                onSizeChange={function (this: BoxRenderable) {
+                  setReviewContentHeight(this.height)
+                }}
+              >
+                <For each={fields()}>
+                  {(item) => {
+                    if (item.type === "external") {
+                      const acknowledged = () => store.answers[item.key] === true
+                      return (
+                        <box paddingLeft={1}>
+                          <text>
+                            <span style={{ fg: theme.text.muted }}>{truncate(formLabel(item), 40)}:</span>{" "}
+                            <span
+                              style={{
+                                fg: acknowledged()
+                                  ? theme.text.feedback.success.base
+                                  : theme.text.feedback.error.base,
+                              }}
+                            >
+                              {acknowledged() ? "Acknowledged" : "(acknowledgement required)"}
+                            </span>
+                          </text>
+                        </box>
+                      )
+                    }
+                    const value = () => formDisplayValue(item, store.answers[item.key], "(none)")
+                    const answered = () => store.answers[item.key] !== undefined
+                    const missing = () => !answered() && item.required === true
+                    const invalid = () => formValidateValue(item, store.answers[item.key])
                     return (
                       <box paddingLeft={1}>
                         <text>
                           <span style={{ fg: theme.text.muted }}>{truncate(formLabel(item), 40)}:</span>{" "}
                           <span
                             style={{
-                              fg: acknowledged()
-                                ? theme.text.feedback.success.base
-                                : theme.text.feedback.error.base,
+                              fg:
+                                invalid() || missing()
+                                  ? theme.text.feedback.error.base
+                                  : answered()
+                                    ? theme.text.base
+                                    : theme.text.muted,
                             }}
                           >
-                            {acknowledged() ? "Acknowledged" : "(acknowledgement required)"}
+                            {invalid() ?? (answered() ? value() : missing() ? "(required)" : "(not answered)")}
                           </span>
                         </text>
                       </box>
                     )
-                  }
-                  const value = () => formDisplayValue(item, store.answers[item.key], "(none)")
-                  const answered = () => store.answers[item.key] !== undefined
-                  const missing = () => !answered() && item.required === true
-                  const invalid = () => formValidateValue(item, store.answers[item.key])
-                  return (
-                    <box paddingLeft={1}>
-                      <text>
-                        <span style={{ fg: theme.text.muted }}>{truncate(formLabel(item), 40)}:</span>{" "}
-                        <span
-                          style={{
-                            fg:
-                              invalid() || missing()
-                                ? theme.text.feedback.error.base
-                                : answered()
-                                  ? theme.text.base
-                                  : theme.text.muted,
-                          }}
-                        >
-                          {invalid() ?? (answered() ? value() : missing() ? "(required)" : "(not answered)")}
-                        </span>
-                      </text>
-                    </box>
-                  )
-                }}
-              </For>
-            </box>
-          </scrollbox>
-        </Show>
-      </box>
-      <box
-        flexDirection="row"
-        flexShrink={0}
-        gap={1}
-        paddingLeft={2}
-        paddingRight={3}
-        paddingBottom={1}
-        justifyContent="space-between"
-      >
-        <box flexDirection="row" gap={2}>
-          <Show when={!single()}>
-            <text fg={theme.text.base}>
-              {"⇆"} <span style={{ fg: theme.text.muted }}>tab</span>
-            </text>
+                  }}
+                </For>
+              </box>
+            </scrollbox>
           </Show>
-          <Show when={!confirm() && !textual() && !externalField() && !store.editing}>
-            <text fg={theme.text.base}>
-              {"↑↓"} <span style={{ fg: theme.text.muted }}>select</span>
-            </text>
-          </Show>
-          <Show when={confirm() && reviewContentHeight() > reviewMaxHeight()}>
-            <text fg={theme.text.base}>
-              {"↑↓"} <span style={{ fg: theme.text.muted }}>scroll</span>
-            </text>
-          </Show>
-          <text
-            fg={theme.text.base}
-            onMouseUp={() => {
-              if (renderer.getSelection()?.getSelectedText()) return
-              if (confirm()) submit()
-              if (externalField()) acknowledgeExternal()
-            }}
-          >
-            enter <span style={{ fg: theme.text.muted }}>{actionLabel()}</span>
-          </text>
-          <Show when={externalField()}>
-            <text fg={theme.text.base} onMouseUp={copyExternal}>
-              c <span style={{ fg: theme.text.muted }}>copy</span>
-            </text>
-          </Show>
-          <text fg={theme.text.base} onMouseUp={cancel}>
-            esc <span style={{ fg: theme.text.muted }}>{store.editing && !textual() ? "close" : "dismiss"}</span>
-          </text>
         </box>
-        <Show when={store.error}>
-          <text fg={theme.text.feedback.error.base}>{store.error}</text>
-        </Show>
-      </box>
+        <box
+          flexDirection="row"
+          flexShrink={0}
+          gap={1}
+          paddingLeft={2}
+          paddingRight={3}
+          paddingBottom={1}
+          justifyContent="space-between"
+        >
+          <box flexDirection="row" gap={2}>
+            <Show when={!single()}>
+              <text fg={theme.text.base}>
+                {"⇆"} <span style={{ fg: theme.text.muted }}>tab</span>
+              </text>
+            </Show>
+            <Show when={!confirm() && !textual() && !externalField() && !store.editing}>
+              <text fg={theme.text.base}>
+                {"↑↓"} <span style={{ fg: theme.text.muted }}>select</span>
+              </text>
+            </Show>
+            <Show when={confirm() && reviewContentHeight() > reviewMaxHeight()}>
+              <text fg={theme.text.base}>
+                {"↑↓"} <span style={{ fg: theme.text.muted }}>scroll</span>
+              </text>
+            </Show>
+            <text
+              fg={theme.text.base}
+              onMouseUp={() => {
+                if (renderer.getSelection()?.getSelectedText()) return
+                if (confirm()) submit()
+                if (externalField()) acknowledgeExternal()
+              }}
+            >
+              enter <span style={{ fg: theme.text.muted }}>{actionLabel()}</span>
+            </text>
+            <Show when={externalField()}>
+              <text fg={theme.text.base} onMouseUp={copyExternal}>
+                c <span style={{ fg: theme.text.muted }}>copy</span>
+              </text>
+            </Show>
+            {/* The extra hint wraps the footer on narrow terminals. */}
+            <Show when={dimensions().width >= 80}>
+              <text fg={theme.text.base}>
+                {shortcuts.get("question.prompt.collapse")} <span style={{ fg: theme.text.muted }}>collapse</span>
+              </text>
+            </Show>
+            <text fg={theme.text.base} onMouseUp={cancel}>
+              esc <span style={{ fg: theme.text.muted }}>{store.editing && !textual() ? "close" : "dismiss"}</span>
+            </text>
+          </box>
+          <Show when={store.error}>
+            <text fg={theme.text.feedback.error.base}>{store.error}</text>
+          </Show>
+        </box>
+      </Show>
     </box>
   )
 }

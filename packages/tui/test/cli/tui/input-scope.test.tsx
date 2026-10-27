@@ -277,3 +277,30 @@ test("permission rejection text keeps its draft and regains focus when its scope
     panes.app.renderer.destroy()
   }
 })
+
+test("a collapsed form hands the keyboard back to the session keys", async () => {
+  await using tmp = await tmpdir()
+  const panes = await mountPanes(tmp.path, () => <FormPrompt form={form([{ key: "notes", type: "string" }])} />)
+  try {
+    panes.setActive(true)
+    expect(panes.keymap.mode.current()).toBe(FORM_MODE)
+    expect(panes.app.renderer.currentFocusedEditor).not.toBeNull()
+
+    panes.app.mockInput.pressKey("q", { ctrl: true })
+    await panes.app.waitForFrame((frame) => frame.includes("ctrl+q expand"))
+    expect(panes.keymap.mode.current()).toBe("base")
+    expect(panes.app.renderer.currentFocusedEditor).toBeNull()
+
+    panes.app.mockInput.pressEnter()
+    await panes.app.renderOnce()
+    expect(panes.replies).toEqual([])
+
+    panes.app.mockInput.pressKey("q", { ctrl: true })
+    await panes.app.waitForFrame((frame) => frame.includes("Type your answer"))
+    expect(panes.keymap.mode.current()).toBe(FORM_MODE)
+    expect(panes.app.renderer.currentFocusedEditor).not.toBeNull()
+    expect(panes.cancellations).toEqual([])
+  } finally {
+    panes.app.renderer.destroy()
+  }
+})

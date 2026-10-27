@@ -731,3 +731,84 @@ test("space does not select a single-choice option", async () => {
     prompt.app.renderer.destroy()
   }
 })
+
+test("collapsing a question keeps it pending and restores the form", async () => {
+  await using tmp = await tmpdir()
+  const prompt = await mountForm(tmp.path, 80, [
+    {
+      key: "target",
+      type: "string",
+      options: [
+        { value: "staging", label: "Staging" },
+        { value: "production", label: "Production" },
+      ],
+    },
+  ])
+  try {
+    prompt.app.mockInput.pressKey("q", { ctrl: true })
+    await prompt.app.waitForFrame((frame) => frame.includes("ctrl+q expand"))
+
+    const collapsed = prompt.app.captureCharFrame()
+    expect(collapsed).not.toContain("Staging")
+    expect(collapsed).toContain("0/1")
+    expect(prompt.replies).toEqual([])
+    expect(prompt.cancellations).toEqual([])
+
+    prompt.app.mockInput.pressKey("q", { ctrl: true })
+    await prompt.app.waitForFrame((frame) => frame.includes("Staging"))
+    expect(prompt.replies).toEqual([])
+    expect(prompt.cancellations).toEqual([])
+  } finally {
+    prompt.app.renderer.destroy()
+  }
+})
+
+test("escape dismisses a collapsed question", async () => {
+  await using tmp = await tmpdir()
+  const prompt = await mountForm(tmp.path)
+  try {
+    prompt.app.mockInput.pressKey("q", { ctrl: true })
+    await prompt.app.waitForFrame((frame) => frame.includes("ctrl+q expand"))
+
+    prompt.app.mockInput.pressEscape()
+    await prompt.app.waitFor(() => prompt.cancellations.length === 1)
+    expect(prompt.replies).toEqual([])
+  } finally {
+    prompt.app.renderer.destroy()
+  }
+})
+
+test("keeps a typed answer when collapsing the form", async () => {
+  await using tmp = await tmpdir()
+  const prompt = await mountForm(tmp.path, 80, [{ key: "notes", type: "string" }])
+  try {
+    await prompt.app.mockInput.typeText("draft answer")
+    await prompt.app.waitFor(() => prompt.app.renderer.currentFocusedEditor?.plainText === "draft answer")
+
+    prompt.app.mockInput.pressKey("q", { ctrl: true })
+    await prompt.app.waitForFrame((frame) => frame.includes("ctrl+q expand"))
+
+    prompt.app.mockInput.pressKey("q", { ctrl: true })
+    await prompt.app.waitFor(() => prompt.app.renderer.currentFocusedEditor?.plainText === "draft answer")
+    expect(prompt.replies).toEqual([])
+  } finally {
+    prompt.app.renderer.destroy()
+  }
+})
+
+test("keeps an invalid answer visible instead of collapsing", async () => {
+  await using tmp = await tmpdir()
+  const prompt = await mountForm(tmp.path, 80, [{ key: "notes", type: "string", pattern: "^[a-z]+$" }])
+  try {
+    await prompt.app.mockInput.typeText("Not valid")
+    await prompt.app.waitFor(() => prompt.app.renderer.currentFocusedEditor?.plainText === "Not valid")
+
+    prompt.app.mockInput.pressKey("q", { ctrl: true })
+    await prompt.app.waitForFrame((frame) => frame.includes("Must match pattern"))
+    expect(prompt.app.captureCharFrame()).not.toContain("ctrl+q expand")
+    expect(prompt.app.renderer.currentFocusedEditor?.plainText).toBe("Not valid")
+    expect(prompt.cancellations).toEqual([])
+  } finally {
+    prompt.app.renderer.destroy()
+  }
+})

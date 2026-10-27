@@ -277,6 +277,7 @@ export const Definitions = {
   "prompt.autocomplete.select": keybind("return", "Select autocomplete item"),
   "prompt.autocomplete.complete": keybind("tab", "Complete autocomplete item"),
   "permission.prompt.fullscreen": keybind("ctrl+f", "Toggle permission prompt fullscreen"),
+  "question.prompt.collapse": keybind("ctrl+q", "Collapse or expand the question form"),
   "plugins.toggle": keybind("return", "Toggle plugin"),
   "dialog.mcp.toggle": keybind("space", "Toggle MCP server"),
   "dialog.plugins.error": keybind("space", "View plugin error"),
