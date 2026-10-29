@@ -168,13 +168,65 @@ serviceTest(
   120_000,
 )
 
+serviceTest(
+  "port 0: concurrent CLI and client starts converge on one server on an OS-assigned port",
+  async () => {
+    await using home = await serviceHome({ port: 0 })
+
+    await Promise.all([
+      cli(home, "service", "start"),
+      cli(home, "service", "start"),
+      ...Array.from({ length: 3 }, () => ensure(home, OPENCODE_VERSION)),
+    ])
+
+    const info = await steady(home)
+    expect(new URL(info.url).port).not.toBe("0")
+    await stopped(home)
+  },
+  120_000,
+)
+
+serviceTest(
+  "port 0: services of separate state directories run side by side",
+  async () => {
+    await using first = await serviceHome({ port: 0 })
+    await using second = await serviceHome({ port: 0 })
+
+    await Promise.all([ensure(first), ensure(second)])
+
+    const [a, b] = await Promise.all([settled(first), settled(second)])
+    expect(a.pid).not.toBe(b.pid)
+    expect(a.url).not.toBe(b.url)
+    await stopped(first)
+    await stopped(second)
+  },
+  120_000,
+)
+
+serviceTest(
+  "port 0: a crashed server is replaced once its lock goes stale",
+  async () => {
+    await using home = await serviceHome({ port: 0 })
+    await ensure(home)
+    const original = await settled(home)
+
+    process.kill(original.pid, "SIGKILL")
+    await exited(original.pid)
+    await cli(home, "service", "start")
+    const recovered = await steady(home)
+    expect(recovered.pid).not.toBe(original.pid)
+    await stopped(home)
+  },
+  120_000,
+)
+
 type Home = Awaited<ReturnType<typeof serviceHome>>
 type Snapshot = Awaited<ReturnType<typeof snapshot>>
 
-async function serviceHome(options: { readonly failBoot?: boolean } = {}) {
+async function serviceHome(options: { readonly failBoot?: boolean; readonly port?: number } = {}) {
   // Bun resolves symlinks in the entry path, so process command lines carry the real directory.
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "opencode-service-lifecycle-")))
-  const port = await availablePort()
+  const port = options.port ?? (await availablePort())
   await fs.mkdir(path.join(root, "config", "opencode"), { recursive: true })
   await fs.writeFile(path.join(root, "config", "opencode", "service-local.json"), JSON.stringify({ port }))
   // A directory where the database file belongs makes boot fail after the server registers.
@@ -224,7 +276,7 @@ function ensure(home: Home, version?: string) {
   )
 }
 
-/** One live server, registered and ready with the expected version on the configured port. */
+/** One live server, registered and ready with the expected version on the configured port (any port for 0). */
 async function settled(home: Home, version = OPENCODE_VERSION) {
   const state = await observe(home, (state) => isSettled(home, state, version))
   if (state.info === undefined) throw new Error("Settled service has no registration")
@@ -247,7 +299,7 @@ function isSettled(home: Home, state: Snapshot, version: string) {
   return (
     state.info !== undefined &&
     state.info.version === version &&
-    new URL(state.info.url).port === String(home.port) &&
+    (home.port === 0 || new URL(state.info.url).port === String(home.port)) &&
     state.answer?.pid === state.info.pid &&
     state.servers.length === 1 &&
     state.servers[0] === state.info.pid

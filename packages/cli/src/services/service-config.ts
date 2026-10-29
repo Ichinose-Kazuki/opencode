@@ -21,7 +21,8 @@ export const Info = Schema.Struct({
   // remote access off and on again does not ask a second time.
   remoteAccepted: Schema.optional(Schema.Literal(true)),
   hostname: Schema.optional(Schema.String),
-  port: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(65_535))),
+  // 0 lets the OS assign a free port at each start; clients find it through the registration.
+  port: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(65_535))),
   password: Schema.optional(Schema.String),
   cors: Schema.optional(Schema.Array(Schema.String)),
   env: Schema.optional(Schema.Record(Schema.String, Schema.String)),
@@ -271,7 +272,7 @@ export const set = Effect.fn("cli.service-config.set")(function* (key: string, v
     }
     case "port": {
       const port = Number(value)
-      if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error("Port must be between 1 and 65535")
+      if (!Number.isInteger(port) || port < 0 || port > 65_535) throw new Error("Port must be between 0 and 65535")
       yield* Service.stop(yield* options())
       yield* write({ ...(yield* read()), port })
       return

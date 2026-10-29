@@ -4,6 +4,8 @@ import { NodeServices } from "@effect/platform-node"
 import { Service } from "@opencode/client/effect/service"
 import { LayerNode } from "@opencode/util/effect/layer-node"
 import { Global } from "@opencode/util/global"
+import { Flock } from "@opencode/util/flock"
+import path from "node:path"
 import { OPENCODE_ARTIFACT, OPENCODE_CHANNEL, OPENCODE_VERSION } from "./version"
 import { AppProcess } from "@opencode/util/process"
 import { randomBytes, randomUUID } from "node:crypto"
@@ -66,8 +68,12 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
       const config = options.mode === "service" ? yield* ServiceConfig.read() : {}
       const hostname = options.hostname ?? config.hostname ?? "127.0.0.1"
       const port = options.port ?? config.port ?? (options.mode === "service" ? ServiceConfig.defaultPort() : undefined)
+      // A service on port 0 binds whatever port the OS assigns, so an incumbent cannot be recognized by its port.
+      // A lock beside the registration admits one such service per state directory instead; a losing contender
+      // exits as if it had found the incumbent, and its clients wait for the winner's registration.
+      if (serviceOptions !== undefined && port === 0 && !(yield* serviceLock(serviceOptions.file))) return
       const findIncumbent =
-        serviceOptions !== undefined && port !== undefined
+        serviceOptions !== undefined && port !== undefined && port !== 0
           ? Service.incumbent({ ...serviceOptions, url: serviceURL(hostname, port) })
           : undefined
       if (findIncumbent !== undefined && (yield* findIncumbent) !== undefined) return
@@ -208,6 +214,28 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
           : Effect.never
     }).pipe(Effect.annotateLogs({ role: "server" })),
   )
+})
+
+// How long a crashed owner's lock blocks a replacement. The owner refreshes the lock's heartbeat at a third of this.
+const serviceLockStaleMs = 10_000
+
+/** Hold the service lock for the rest of the scope; false when another live service holds it. */
+const serviceLock = Effect.fnUntraced(function* (registration: string) {
+  const lease = yield* Effect.acquireRelease(
+    Effect.promise(() =>
+      Flock.acquire(path.basename(registration), {
+        dir: path.dirname(registration),
+        staleMs: serviceLockStaleMs,
+        timeoutMs: 0,
+      }).catch((cause: unknown) => {
+        // With no wait allowed, a held lock surfaces as the timeout; anything else is a real failure.
+        if (cause instanceof Error && cause.message.startsWith("Timed out waiting for lock")) return undefined
+        throw cause
+      }),
+    ),
+    (lease) => (lease === undefined ? Effect.void : Effect.promise(() => lease.release().catch(() => undefined))),
+  )
+  return lease !== undefined
 })
 
 function serviceURL(hostname: string, port: number) {
