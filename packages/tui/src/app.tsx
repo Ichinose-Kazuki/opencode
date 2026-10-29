@@ -668,6 +668,13 @@ function App() {
     })
   })
 
+  // New-session screens reached without session.new (closing a tab, changing
+  // project, or moving directory) must also start from the configured default.
+  createEffect(() => {
+    if (route.data.type !== "home" || config.data.session.new_agent !== "default") return
+    local.agent.reset()
+  })
+
   let continued = false
   createEffect(() => {
     if (continued || !args.continue) return
@@ -774,7 +781,8 @@ function App() {
               location.error?.location,
             ),
           })
-          if (agent) local.agent.set(agent.id)
+          if (config.data.session.new_agent === "default") local.agent.reset()
+          else if (agent) local.agent.set(agent.id)
           if (model) local.model.set(model)
           dialog.clear()
         },
@@ -801,7 +809,8 @@ function App() {
               location.error?.location,
             ),
           })
-          if (agent) local.agent.set(agent.id)
+          if (config.data.session.new_agent === "default") local.agent.reset()
+          else if (agent) local.agent.set(agent.id)
           if (model) local.model.set(model)
           dialog.clear()
         },

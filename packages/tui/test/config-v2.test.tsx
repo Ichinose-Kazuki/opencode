@@ -45,6 +45,8 @@ test("validates the session tabs setting", () => {
   expect(decode({ session: { tps: false } })).toEqual({ session: { tps: false } })
   expect(decode({ session: { new_location: "inherit" } })).toEqual({ session: { new_location: "inherit" } })
   expect(() => decode({ session: { new_location: "current" } })).toThrow()
+  expect(decode({ session: { new_agent: "default" } })).toEqual({ session: { new_agent: "default" } })
+  expect(() => decode({ session: { new_agent: "previous" } })).toThrow()
 })
 
 test("resolves nested config and keybind defaults", () => {
@@ -72,6 +74,7 @@ test("resolves nested config and keybind defaults", () => {
     indicators: "status",
   })
   expect(config.session.new_location).toBe("launch")
+  expect(config.session.new_agent).toBe("current")
   expect(config.session.tps).toBe(true)
 })
 
@@ -106,6 +109,14 @@ test("shows resolved tab defaults in settings", () => {
 
 test("shows the new session location default in settings", () => {
   expect(settings.find((setting) => setting.path.join(".") === "session.new_location")?.default).toBe("launch")
+})
+
+test("shows the new session agent default in settings", () => {
+  expect(settings.find((setting) => setting.path.join(".") === "session.new_agent")).toMatchObject({
+    category: "Session",
+    default: "current",
+    values: ["current", "default"],
+  })
 })
 
 test("shows the TPS default in session settings", () => {

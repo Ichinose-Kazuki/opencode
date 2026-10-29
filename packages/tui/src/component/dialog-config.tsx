@@ -142,6 +142,16 @@ export const settings: Setting[] = [
     keywords: ["directory", "cwd", "inherit"],
   },
   {
+    title: "New session agent",
+    category: "Session",
+    path: ["session", "new_agent"],
+    description: "Whether new sessions keep the current agent or use the default agent",
+    default: "current",
+    values: ["current", "default"],
+    labels: ["current agent", "default agent"],
+    keywords: ["agent", "new session", "default"],
+  },
+  {
     title: "Permissions",
     category: "Session",
     path: ["session", "permissions"],

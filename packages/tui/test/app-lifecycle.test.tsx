@@ -1249,6 +1249,88 @@ test("new session inherits the active session model", async () => {
   expect(frame).toContain("Session Model")
 })
 
+test("new session can use the configured default agent", async () => {
+  const cwd = process.cwd()
+  const location = { directory: cwd, project: { id: "project", directory: cwd } }
+  const session = {
+    id: "dummy",
+    title: "Demo session",
+    projectID: "project",
+    location: { directory: cwd },
+    agent: "build",
+    model: { providerID: "provider", id: "session-model" },
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    time: { created: 0, updated: 0 },
+  }
+  const created = Promise.withResolvers<unknown>()
+  let active: Record<string, unknown> | undefined
+  await using setup = await createAppFixture({
+    width: 80,
+    height: 24,
+    args: { sessionID: "dummy" },
+    config: {
+      animations: false,
+      tabs: { mode: "off" },
+      keybinds: { "session.new": "f6" },
+      session: { new_agent: "default" },
+    },
+    fetch: async (url, request) => {
+      if (url.pathname === "/api/fs/list") return json({ location, data: [] })
+      if (url.pathname === "/api/location") return json(location)
+      if (url.pathname === "/api/session" && request.method === "POST") {
+        const input: unknown = await request.json()
+        if (typeof input !== "object" || input === null) throw new Error("Expected a session input")
+        const value = input as Record<string, unknown>
+        created.resolve(value)
+        active = {
+          ...value,
+          projectID: "project",
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          time: { created: 0, updated: 0 },
+        }
+        return json({ data: active })
+      }
+      if (url.pathname === "/api/session") return json({ data: [session], cursor: {} })
+      if (url.pathname === "/api/session/dummy") return json({ data: session })
+      if (/^\/api\/session\/[^/]+\/message$/.test(url.pathname)) return json({ data: [], cursor: {} })
+      if (/^\/api\/session\/[^/]+\/(inbox|permission)$/.test(url.pathname)) return json({ data: [] })
+      if (active && /^\/api\/session\/[^/]+$/.test(url.pathname)) return json({ data: active })
+      if (/^\/api\/session\/[^/]+\/prompt$/.test(url.pathname)) return json({ data: {} })
+      if (url.pathname === "/api/agent")
+        return json({
+          location,
+          data: [
+            { id: "plan", mode: "primary", hidden: false, permissions: [] },
+            { id: "build", mode: "primary", hidden: false, permissions: [] },
+          ],
+        })
+      if (url.pathname === "/api/provider") return json({ location, data: [{ id: "provider", name: "Provider" }] })
+      if (url.pathname === "/api/model")
+        return json({
+          location,
+          data: [{ id: "session-model", providerID: "provider", name: "Session Model", variants: [] }],
+        })
+    },
+  })
+
+  await setup.waitForFrame((frame) => frame.includes("Session Model"))
+  setup.mockInput.pressKey("F6")
+  await setup.renderOnce()
+  setup.mockInput.typeText("PLAN_READY")
+  await setup.waitForFrame((frame) => frame.includes("PLAN_READY"))
+  setup.mockInput.pressEnter()
+  expect(
+    await Promise.race([
+      created.promise,
+      Bun.sleep(2_000).then(() => {
+        throw new Error("new session was not created")
+      }),
+    ]),
+  ).toMatchObject({ agent: "plan" })
+}, 30_000)
+
 test("keeps the prompt display stable while a new location catalog loads", async () => {
   const source = process.cwd()
   const target = path.join(path.parse(source).root, "opencode-target")

@@ -114,6 +114,9 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
             if (selected) model.set(selected)
           })
         },
+        reset() {
+          setAgentStore("current", undefined)
+        },
         move(direction: 1 | -1) {
           batch(() => {
             const current = this.current()
