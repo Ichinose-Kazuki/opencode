@@ -475,9 +475,9 @@ test("the original managed service contender binds when the occupied port is rel
   const port = listener.port
   if (port === undefined) throw new Error("Server did not bind a port")
   const registration = path.join(root, "state", "opencode", "service-local.json")
-  await fs.mkdir(path.join(root, "config"), { recursive: true })
+  await fs.mkdir(path.join(root, "config", "opencode"), { recursive: true })
   await fs.mkdir(path.dirname(registration), { recursive: true })
-  await fs.writeFile(path.join(root, "config", "service-local.json"), JSON.stringify({ port }))
+  await fs.writeFile(path.join(root, "config", "opencode", "service-local.json"), JSON.stringify({ port }))
   await fs.writeFile(
     registration,
     JSON.stringify({

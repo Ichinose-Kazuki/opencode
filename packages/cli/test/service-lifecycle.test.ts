@@ -175,8 +175,8 @@ async function serviceHome(options: { readonly failBoot?: boolean } = {}) {
   // Bun resolves symlinks in the entry path, so process command lines carry the real directory.
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "opencode-service-lifecycle-")))
   const port = await availablePort()
-  await fs.mkdir(path.join(root, "config"), { recursive: true })
-  await fs.writeFile(path.join(root, "config", "service-local.json"), JSON.stringify({ port }))
+  await fs.mkdir(path.join(root, "config", "opencode"), { recursive: true })
+  await fs.writeFile(path.join(root, "config", "opencode", "service-local.json"), JSON.stringify({ port }))
   // A directory where the database file belongs makes boot fail after the server registers.
   if (options.failBoot) await fs.mkdir(path.join(root, "database"))
   // Servers spawned through this home's entry carry its path, so `servers()` sees only this home.
