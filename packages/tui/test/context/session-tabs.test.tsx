@@ -229,6 +229,21 @@ function admitted(sessionID: string, inboxID: string): OpenCodeEvent {
   }
 }
 
+function activityEvent<T extends OpenCodeEvent["type"]>(input: {
+  seq: number
+  sessionID: string
+  type: T
+  data: Extract<OpenCodeEvent, { type: T }>["data"]
+}): OpenCodeEvent {
+  return {
+    id: `evt_activity_${input.seq}`,
+    created: input.seq,
+    type: input.type,
+    durable: { aggregateID: input.sessionID, seq: input.seq, version: 1 },
+    data: input.data,
+  } as OpenCodeEvent
+}
+
 test("loads persisted tab metadata concurrently on connect", async () => {
   let release!: () => void
   const sessionGate = new Promise<void>((resolve) => (release = resolve))
@@ -659,6 +674,186 @@ test("distinguishes family questions and permissions without clearing them on se
       data: { sessionID: "child", id: "frm_question", answer: {} },
     })
     await wait(() => setup.tabs.status("root").attention === false)
+  } finally {
+    await setup.destroy()
+  }
+})
+
+test("reports the activity of the running session", async () => {
+  const setup = await renderSessionTabs("root", { home: true, persisted: ["root"] })
+  try {
+    await wait(() => setup.tabs.tabs().some((tab) => tab.sessionID === "root"))
+    expect(setup.tabs.status("root").activity).toBeUndefined()
+
+    setup.emit(
+      activityEvent({
+        seq: 1,
+        sessionID: "root",
+        type: "session.execution.started",
+        data: { sessionID: "root" },
+      }),
+    )
+    await wait(() => setup.tabs.status("root").activity === "waiting")
+
+    setup.emit(
+      activityEvent({
+        seq: 2,
+        sessionID: "root",
+        type: "session.reasoning.started",
+        data: { sessionID: "root", assistantMessageID: "msg_1", ordinal: 0 },
+      }),
+    )
+    await wait(() => setup.tabs.status("root").activity === "thinking")
+
+    setup.emit(
+      activityEvent({
+        seq: 3,
+        sessionID: "root",
+        type: "session.text.started",
+        data: { sessionID: "root", assistantMessageID: "msg_1", ordinal: 0 },
+      }),
+    )
+    await wait(() => setup.tabs.status("root").activity === "writing")
+
+    setup.emit(
+      activityEvent({
+        seq: 4,
+        sessionID: "root",
+        type: "session.tool.input.started",
+        data: { sessionID: "root", assistantMessageID: "msg_1", id: "call_1", name: "read" },
+      }),
+    )
+    await wait(() => setup.tabs.status("root").activity === "preparing")
+
+    setup.emit(
+      activityEvent({
+        seq: 5,
+        sessionID: "root",
+        type: "session.tool.called",
+        data: { sessionID: "root", assistantMessageID: "msg_1", id: "call_1", input: {}, executed: true },
+      }),
+    )
+    await wait(() => setup.tabs.status("root").activity === "running")
+
+    setup.emit(
+      activityEvent({
+        seq: 6,
+        sessionID: "root",
+        type: "session.tool.success",
+        data: {
+          sessionID: "root",
+          assistantMessageID: "msg_1",
+          id: "call_1",
+          content: [{ type: "text", text: "ok" }],
+          executed: true,
+        },
+      }),
+    )
+    await wait(() => setup.tabs.status("root").activity === "waiting")
+
+    setup.emit(
+      activityEvent({
+        seq: 7,
+        sessionID: "root",
+        type: "session.retry.scheduled",
+        data: {
+          sessionID: "root",
+          assistantMessageID: "msg_1",
+          attempt: 1,
+          at: 10,
+          error: { type: "provider.free-limit", message: "limit", status: 429, retryAfterMs: 1_000 },
+        },
+      }),
+    )
+    await wait(() => setup.tabs.status("root").activity === "retrying")
+
+    setup.emit(
+      activityEvent({
+        seq: 8,
+        sessionID: "root",
+        type: "session.compaction.started",
+        data: { sessionID: "root", reason: "auto" },
+      }),
+    )
+    await wait(() => setup.tabs.status("root").activity === "compacting")
+
+    setup.emit(
+      activityEvent({
+        seq: 9,
+        sessionID: "root",
+        type: "session.compaction.ended",
+        data: { sessionID: "root", reason: "auto", text: "summary" },
+      }),
+    )
+    await wait(() => setup.tabs.status("root").activity === "waiting")
+
+    setup.emit(
+      activityEvent({
+        seq: 10,
+        sessionID: "root",
+        type: "session.execution.succeeded",
+        data: { sessionID: "root" },
+      }),
+    )
+    await wait(() => setup.tabs.status("root").activity === undefined)
+
+    setup.emit(admitted("root", "inbox_1"))
+    await wait(() => setup.tabs.status("root").activity === "queued")
+  } finally {
+    await setup.destroy()
+  }
+})
+
+test("shows a subagent marker unless its execution is being viewed", async () => {
+  const setup = await renderSessionTabs("root", {
+    home: true,
+    persisted: ["root"],
+    sessionParents: { child: "root" },
+  })
+  try {
+    await wait(() => setup.data.session.get("child") !== undefined)
+    expect(setup.tabs.status("root").subagent).toBe(false)
+
+    setup.emit(
+      activityEvent({
+        seq: 1,
+        sessionID: "child",
+        type: "session.execution.started",
+        data: { sessionID: "child" },
+      }),
+    )
+    await wait(() => setup.tabs.status("root").subagent === true)
+    expect(setup.tabs.status("root").activity).toBeUndefined()
+
+    setup.route.navigate({ type: "session", sessionID: "child" })
+    await wait(() => setup.route.data.type === "session" && setup.route.data.sessionID === "child")
+    await wait(() => setup.tabs.status("root").subagent === false)
+    expect(setup.tabs.status("root").activity).toBe("waiting")
+
+    setup.emit(
+      activityEvent({
+        seq: 2,
+        sessionID: "child",
+        type: "session.reasoning.started",
+        data: { sessionID: "child", assistantMessageID: "msg_child", ordinal: 0 },
+      }),
+    )
+    await wait(() => setup.tabs.status("root").activity === "thinking")
+
+    setup.route.navigate({ type: "session", sessionID: "root" })
+    await wait(() => setup.route.data.type === "session" && setup.route.data.sessionID === "root")
+    await wait(() => setup.tabs.status("root").subagent === true)
+    expect(setup.tabs.status("root").activity).toBeUndefined()
+
+    setup.emit(
+      activityEvent({
+        seq: 3,
+        sessionID: "child",
+        type: "session.execution.succeeded",
+        data: { sessionID: "child" },
+      }),
+    )
+    await wait(() => setup.tabs.status("root").subagent === false)
   } finally {
     await setup.destroy()
   }

@@ -5,12 +5,14 @@ import { createStore, reconcile } from "solid-js/store"
 import {
   EMPTY_SESSION_TAB_STATUS,
   SessionTabs,
+  TAB_ACTIVITY_GLYPHS,
   TAB_SPINNERS,
   TAB_UNREAD_MARKERS,
   type SessionTabsController,
   type TabSpinner,
   type TabUnreadMarker,
 } from "../../../component/session-tabs"
+import type { SessionTabActivity } from "../../../context/session-tabs-activity"
 import { closeSessionTab, cycleSessionTab, moveSessionTab } from "../../../context/session-tabs-model"
 import { StoryFooter } from "./footer"
 import { DialogPrompt } from "../../../ui/dialog-prompt"
@@ -45,11 +47,18 @@ const FIXTURE_TABS = [
 ]
 
 const FIXTURE_STATUSES: Record<string, FixtureStatus> = {
+  "fixture-1": { ...EMPTY_SESSION_TAB_STATUS, busy: true, activity: "queued" },
   "fixture-2": { ...EMPTY_SESSION_TAB_STATUS, busy: true },
   "fixture-3": { ...EMPTY_SESSION_TAB_STATUS, busy: true, attention: "question" },
   "fixture-4": { ...EMPTY_SESSION_TAB_STATUS, busy: true, attention: "permission" },
   "fixture-5": { ...EMPTY_SESSION_TAB_STATUS, unread: "activity" },
   "fixture-6": { ...EMPTY_SESSION_TAB_STATUS, unread: "error" },
+  "fixture-7": { ...EMPTY_SESSION_TAB_STATUS, busy: true, activity: "thinking" },
+  "fixture-8": { ...EMPTY_SESSION_TAB_STATUS, busy: true, activity: "writing" },
+  "fixture-9": { ...EMPTY_SESSION_TAB_STATUS, busy: true, activity: "preparing" },
+  "fixture-10": { ...EMPTY_SESSION_TAB_STATUS, busy: true, activity: "running" },
+  "fixture-11": { ...EMPTY_SESSION_TAB_STATUS, busy: true, activity: "retrying" },
+  "fixture-12": { ...EMPTY_SESSION_TAB_STATUS, busy: true, activity: "compacting" },
 }
 const FIXTURE_OUTCOMES = { "fixture-5": "completed", "fixture-6": "failed" } as const
 
@@ -92,6 +101,7 @@ function SessionTabsStory(props: { context: Plugin.Context }) {
   const railCompact = () => resize.size() < SESSION_TABS_COMPACT_BREAKPOINT
   const spinners = Object.keys(TAB_SPINNERS) as TabSpinner[]
   const [spinner, setSpinner] = createSignal<TabSpinner>("dots")
+  const activities = Object.keys(TAB_ACTIVITY_GLYPHS) as SessionTabActivity[]
   const markers = Object.keys(TAB_UNREAD_MARKERS) as TabUnreadMarker[]
   const [marker, setMarker] = createSignal<TabUnreadMarker>("small-dot")
   const [animations, setAnimations] = createSignal(true)
@@ -445,6 +455,29 @@ function SessionTabsStory(props: { context: Plugin.Context }) {
         run: () => setSpinner((value) => spinners[(spinners.indexOf(value) + 1) % spinners.length]),
       },
       {
+        bind: "y",
+        title: "Cycle tab activity",
+        group: "Storybook",
+        run() {
+          const current = active()
+          if (!current) return
+          const modes = ["fallback", ...activities, "subagent"] as const
+          const status = controller.status(current)
+          const mode = status.subagent ? "subagent" : (status.activity ?? "fallback")
+          const next = modes[(modes.indexOf(mode) + 1) % modes.length]
+          setStatuses((statuses) => ({
+            ...statuses,
+            [current]: {
+              ...EMPTY_SESSION_TAB_STATUS,
+              busy: true,
+              activity: next === "fallback" || next === "subagent" ? undefined : next,
+              subagent: next === "subagent",
+            },
+          }))
+          setLastEvent(`tab ${number(current)} activity ${next}`)
+        },
+      },
+      {
         bind: "u",
         title: "Cycle unread marker",
         group: "Storybook",
@@ -549,6 +582,7 @@ function SessionTabsStory(props: { context: Plugin.Context }) {
           { shortcut: "f/x", label: "complete/fail" },
           { shortcut: "t/d", label: "add/close" },
           { shortcut: "c", label: "spinner" },
+          { shortcut: "y", label: "tab activity" },
           { shortcut: "g", label: "status/numbers" },
           { shortcut: "u", label: "unread marker" },
           { shortcut: "m", label: "motion" },

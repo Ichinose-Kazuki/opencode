@@ -37,6 +37,7 @@ import {
   type SessionTab,
   type SessionTabUnread,
 } from "../context/session-tabs-model"
+import type { SessionTabActivity } from "../context/session-tabs-activity"
 import { createAnimatable, spring, tween } from "../ui/animation"
 import { Locale } from "../util/locale"
 import { TabPulse, unreadGlowIntensity } from "./tab-pulse"
@@ -69,6 +70,18 @@ export const TAB_UNREAD_MARKERS = {
   "large-square": "■",
 }
 export type TabUnreadMarker = keyof typeof TAB_UNREAD_MARKERS
+
+export const TAB_ACTIVITY_GLYPHS = {
+  queued: "▹",
+  waiting: "‖",
+  thinking: "*",
+  writing: "_",
+  preparing: "⎔",
+  running: "►",
+  retrying: "↺",
+  compacting: "⊟",
+} satisfies Record<SessionTabActivity, string>
+export const TAB_SUBAGENT_GLYPH = "❖"
 
 // A long title fades out over its last cells instead of cutting hard.
 const FADE_WIDTH = 4
@@ -106,6 +119,8 @@ export const EMPTY_SESSION_TAB_STATUS: SessionTabsStatus = {
   promptPulse: 0,
   attention: false,
   busy: false,
+  subagent: false,
+  activity: undefined,
   renaming: false,
 }
 export type SessionTabsController = Pick<ContextController, "tabs" | "current" | "select" | "close" | "move"> & {
@@ -169,11 +184,16 @@ function TabIndicator(props: {
     return tint(props.backgroundColor, tint(unreadColor(), props.flashColor, flash * 0.3), Math.min(1, opacity / 0.8))
   }
   const spinner = () => TAB_SPINNERS[props.spinner ?? "dots"]
+  const activityGlyph = () => {
+    if (props.status.subagent) return TAB_SUBAGENT_GLYPH
+    if (props.status.activity) return TAB_ACTIVITY_GLYPHS[props.status.activity]
+    return spinner().frames[0]
+  }
   const label = () => {
     if (props.numbers) return props.label
     if (props.status.attention === "permission") return "!"
     if (props.status.attention === "question") return "?"
-    if (runs()) return spinner().frames[0]
+    if (runs()) return activityGlyph()
     if (props.label === "+") return "+"
     if (props.status.unread || fading()) return TAB_UNREAD_MARKERS[props.unreadMarker ?? "small-dot"]
     return props.idleLabel ?? ""
@@ -188,7 +208,7 @@ function TabIndicator(props: {
       paddingRight={props.centered ? 0 : 1}
     >
       <Show
-        when={runs() && props.animations && !props.numbers}
+        when={runs() && props.animations && !props.numbers && !props.status.subagent && !props.status.activity}
         fallback={
           <text fg={color()} selectable={false} attributes={props.attributes}>
             {label()}

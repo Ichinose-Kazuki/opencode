@@ -1,3 +1,4 @@
+import type { OpenCodeEvent } from "@opencode/client"
 import { createEffect, createMemo, createSignal, on, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useKeyboard, useRenderer } from "@opentui/solid"
@@ -15,6 +16,7 @@ import { useTuiPaths } from "./runtime"
 import { newSessionLocation } from "../config/new-session-location"
 import { createSessionRetention } from "./session-retention"
 import { createProgramStatus, type PendingSession } from "./program-status"
+import { applySessionTabActivity, type SessionTabActivityState } from "./session-tabs-activity"
 import { anchorKey, type AnchorTarget } from "../routes/session/anchors"
 import {
   closeSessionTab,
@@ -79,6 +81,24 @@ export const { use: useSessionTabs, provider: SessionTabsProvider } = createSimp
     })
     const fallback = empty()
     const [promptPulses, setPromptPulses] = createSignal<Record<string, number>>({})
+    const [activityStates, setActivityStates] = createSignal<Record<string, SessionTabActivityState>>({})
+    const applyActivity = (event: OpenCodeEvent) => {
+      if (!("sessionID" in event.data)) return
+      const sessionID = event.data.sessionID
+      const update = applySessionTabActivity(activityStates()[sessionID], event)
+      if (update === undefined) return
+      setActivityStates((current) => {
+        if (update === null) {
+          if (current[sessionID] === undefined) return current
+          const next = { ...current }
+          delete next[sessionID]
+          return next
+        }
+        return { ...current, [sessionID]: update }
+      })
+    }
+    onCleanup(event.subscribe(applyActivity))
+    onCleanup(event.on("server.connected", () => setActivityStates({})))
     let history: SessionTabHistory = { entries: [], index: -1 }
     // User-closed tabs eligible for reopening; in-memory like history, deleted sessions pruned.
     const [closedTabs, setClosedTabs] = createSignal<ClosedSessionTab[]>([])
@@ -150,9 +170,22 @@ export const { use: useSessionTabs, provider: SessionTabsProvider } = createSimp
       const sessionID = current()
       return sessionID !== undefined && !state().tabs.some((tab) => tab.sessionID === sessionID)
     }, false)
+    const isBusy = (id: string) =>
+      data.session.status(id) === "running" || data.session.pending.list(id).some((item) => item.type !== "synthetic")
     const status = (sessionID: string) => {
       const session = root(sessionID)
       const members = family(session)
+      const viewed =
+        route.data.type === "session" && route.data.sessionID !== "dummy" ? route.data.sessionID : undefined
+      // While a subagent's session is open, its tab shows the child's phase instead of the delegation marker.
+      const viewedChild = viewed && viewed !== session && root(viewed) === session ? viewed : undefined
+      const viewedActive = viewedChild && isBusy(viewedChild) ? viewedChild : undefined
+      const subagent = !viewedActive && members.some((id) => id !== session && isBusy(id))
+      const activity = viewedActive
+        ? activityStates()[viewedActive]?.activity
+        : subagent
+          ? undefined
+          : activityStates()[session]?.activity
       return {
         // Unread reads the root session only: background subagent completions wake the parent,
         // whose own idle transition then carries the signal.
@@ -168,11 +201,9 @@ export const { use: useSessionTabs, provider: SessionTabsProvider } = createSimp
             ? ("question" as const)
             : (false as const),
         // Parked synthetic context (user shells, plan reminders) stays pending without execution; only work counts as busy.
-        busy: members.some(
-          (id) =>
-            data.session.status(id) === "running" ||
-            data.session.pending.list(id).some((item) => item.type !== "synthetic"),
-        ),
+        busy: members.some(isBusy),
+        subagent,
+        activity,
         renaming: data.session.title.pending(session),
       }
     }
