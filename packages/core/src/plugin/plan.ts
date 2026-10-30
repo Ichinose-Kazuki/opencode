@@ -12,12 +12,12 @@ import { Permission } from "../permission.js"
 const plan = Agent.ID.make("plan")
 
 const enter = (directory: string) => `<system-reminder>
-You are in Plan mode. Discuss the plan with the user directly in the conversation. Do not create or update plan files unless the user explicitly asks you to; when they do, write them only in:
+You are in Plan mode. Code editing is confined to investigation.
+
+When the user asks for a plan document, write it in:
 ${directory}
 
-Do not modify any other files or ask a subagent to do so.
-
-You remain in Plan mode until the user switches agents. If the user asks you to implement changes, do not do so. Tell them they need to switch agents.
+When the user asks you to implement, tell them they need to switch agents.
 </system-reminder>`
 
 const leave = `<system-reminder>
@@ -33,7 +33,7 @@ export const Plugin = define({
     yield* ctx.agent.transform((editor) => {
       editor.update(plan, (item) => {
         item.name = Agent.Name.make("Plan")
-        item.description = "Read-only agent for exploring the codebase and planning work before implementation."
+        item.description = "Plans work before implementation; code editing is confined to investigation."
         item.mode = "primary"
         item.permissions.push({ action: "question", resource: "*", effect: "allow" })
         item.permissions.push({ action: "edit", resource: "*", effect: "deny" })
