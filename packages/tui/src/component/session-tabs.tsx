@@ -72,12 +72,12 @@ export const TAB_UNREAD_MARKERS = {
 export type TabUnreadMarker = keyof typeof TAB_UNREAD_MARKERS
 
 export const TAB_ACTIVITY_GLYPHS = {
-  queued: "▹",
+  queued: "▷",
   waiting: "‖",
   thinking: "*",
   writing: "_",
   preparing: "⎔",
-  running: "►",
+  running: "▶",
   retrying: "↺",
   compacting: "⊟",
 } satisfies Record<SessionTabActivity, string>

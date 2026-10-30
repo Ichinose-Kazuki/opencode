@@ -130,12 +130,12 @@ for (const orientation of ["horizontal", "vertical"] as const) {
         .indexOf("First")
       const states: { status: Partial<SessionTabsStatus>; label: string }[] = [
         { status: { busy: true }, label: SPINNER_FRAMES[0] },
-        { status: { busy: true, activity: "queued" }, label: "▹" },
+        { status: { busy: true, activity: "queued" }, label: "▷" },
         { status: { busy: true, activity: "waiting" }, label: "‖" },
         { status: { busy: true, activity: "thinking" }, label: "*" },
         { status: { busy: true, activity: "writing" }, label: "_" },
         { status: { busy: true, activity: "preparing" }, label: "⎔" },
-        { status: { busy: true, activity: "running" }, label: "►" },
+        { status: { busy: true, activity: "running" }, label: "▶" },
         { status: { busy: true, activity: "retrying" }, label: "↺" },
         { status: { busy: true, activity: "compacting" }, label: "⊟" },
         { status: { busy: true, subagent: true }, label: "❖" },
