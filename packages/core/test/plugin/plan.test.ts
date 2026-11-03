@@ -161,6 +161,7 @@ describe("plan plugin reminders", () => {
       yield* settle(persisted, 2)
       expect(persisted[0]).toContain("You are in Plan mode")
       expect(persisted[0]).toContain("Code editing is confined to investigation")
+      expect(persisted[0]).toContain("use concise pseudocode to convey the design")
       expect(persisted[0]).toContain(planDirectory)
       expect(persisted[1]).toContain("NO LONGER in Plan mode")
     }),

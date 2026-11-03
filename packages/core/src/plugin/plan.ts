@@ -13,6 +13,7 @@ const plan = Agent.ID.make("plan")
 
 const enter = (directory: string) => `<system-reminder>
 You are in Plan mode. Code editing is confined to investigation.
+Do not include concrete implementation code in plan discussion; use concise pseudocode to convey the design.
 
 When the user asks for a plan document, write it in:
 ${directory}
