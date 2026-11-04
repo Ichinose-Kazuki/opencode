@@ -74,7 +74,7 @@ export type TabUnreadMarker = keyof typeof TAB_UNREAD_MARKERS
 export const TAB_ACTIVITY_GLYPHS = {
   queued: "▷",
   waiting: "‖",
-  thinking: "*",
+  thinking: "✻",
   writing: "_",
   preparing: "⎔",
   running: "▶",
