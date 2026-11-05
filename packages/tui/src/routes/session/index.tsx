@@ -127,6 +127,7 @@ import { parseTodos } from "../../util/todo"
 import { createHistoryPrepend } from "./history"
 import { context, use, type PendingAction } from "./render-context"
 import { INLINE_TOOL_ICON_WIDTH, InlineToolRow, ReasoningPart, TextPart, toolDisplay } from "./message-parts"
+import { entryTime, Timestamped } from "./timestamps"
 import { defaultVerbosity, type GroupKind, type SessionEntry } from "./grouping/session"
 import { SessionGroupView } from "./group-view"
 import { useEntryAnchor } from "./anchor-view"
@@ -1697,36 +1698,41 @@ function SessionRowView(props: SessionRowViewProps) {
 }
 
 function SessionEntryView(props: { row: SessionEntry; message: SessionRowViewProps["message"]; images?: boolean }) {
+  const data = useData()
+  const ctx = use()
+  const time = createMemo(() => entryTime(props.row, props.message, data.session.pending.list(ctx.sessionID)))
   return (
-    <Switch>
-      <Match when={props.row.type === "message" ? props.row : undefined}>
-        {(row) => (
-          <Show when={props.message(row().messageID)}>{(message) => <SessionMessageView message={message()} />}</Show>
-        )}
-      </Match>
-      <Match when={props.row.type === "compaction-queued"}>
-        <CompactionQueued />
-      </Match>
-      <Match when={props.row.type === "part" ? props.row : undefined}>
-        {(row) => <SessionPartView partRef={row().ref} message={props.message} images={props.images} />}
-      </Match>
-      <Match when={props.row.type === "assistant-footer" ? props.row : undefined}>
-        {(row) => (
-          <Show when={props.message(row().messageID)}>
-            {(message) => (
-              <Show when={message().type === "assistant"}>
-                <AssistantFooter message={message() as SessionMessageAssistant} />
-              </Show>
-            )}
-          </Show>
-        )}
-      </Match>
-      <Match when={props.row.type === "turn-usage" ? props.row : undefined}>
-        {(row) => (
-          <TurnTokenUsage messageIDs={row().messageIDs} previousCache={row().previousCache} message={props.message} />
-        )}
-      </Match>
-    </Switch>
+    <Timestamped time={time()}>
+      <Switch>
+        <Match when={props.row.type === "message" ? props.row : undefined}>
+          {(row) => (
+            <Show when={props.message(row().messageID)}>{(message) => <SessionMessageView message={message()} />}</Show>
+          )}
+        </Match>
+        <Match when={props.row.type === "compaction-queued"}>
+          <CompactionQueued />
+        </Match>
+        <Match when={props.row.type === "part" ? props.row : undefined}>
+          {(row) => <SessionPartView partRef={row().ref} message={props.message} images={props.images} />}
+        </Match>
+        <Match when={props.row.type === "assistant-footer" ? props.row : undefined}>
+          {(row) => (
+            <Show when={props.message(row().messageID)}>
+              {(message) => (
+                <Show when={message().type === "assistant"}>
+                  <AssistantFooter message={message() as SessionMessageAssistant} />
+                </Show>
+              )}
+            </Show>
+          )}
+        </Match>
+        <Match when={props.row.type === "turn-usage" ? props.row : undefined}>
+          {(row) => (
+            <TurnTokenUsage messageIDs={row().messageIDs} previousCache={row().previousCache} message={props.message} />
+          )}
+        </Match>
+      </Switch>
+    </Timestamped>
   )
 }
 

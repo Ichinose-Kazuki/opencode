@@ -488,7 +488,12 @@ export type ShellInfo1 = {
   time: { started: number; completed?: number }
 }
 
-export type SessionMessageAssistantText = { type: "text"; text: string; native?: SessionMessageNative }
+export type SessionMessageAssistantText = {
+  type: "text"
+  text: string
+  native?: SessionMessageNative
+  time?: { created: number; completed?: number }
+}
 
 export type SessionMessageAssistantReasoning = {
   type: "reasoning"
@@ -548,7 +553,12 @@ export type EventLogSynced = { type: "log.synced"; aggregateID: string; seq?: Ev
 
 export type LocationRef = { directory: AbsolutePath; workspaceID?: WorkspaceID }
 
-export type SessionMessageAssistantText1 = { type: "text"; text: string; native?: SessionMessageNative1 }
+export type SessionMessageAssistantText1 = {
+  type: "text"
+  text: string
+  native?: SessionMessageNative1
+  time?: { created: number; completed?: number }
+}
 
 export type SessionMessageAssistantReasoning1 = {
   type: "reasoning"
@@ -1081,6 +1091,7 @@ export type SessionForked = {
     boundary: SessionForkBoundary
     instructions?: { [x: InstructionKey]: InstructionHash }
     instructionEntries?: InstructionEntrySnapshot
+    asChild?: boolean
   }
 }
 

@@ -930,6 +930,9 @@ test("completes exploration and keeps live rows when a queued prompt is promoted
     })
     await wait(() => rows.some((row) => row.type === "group" && !row.completed))
     const text = rows.find((row) => row.type === "part")
+    const live = data.session.message.get(sessionID, "message-assistant")
+    if (live?.type !== "assistant") throw new Error("Expected a live assistant message")
+    expect(live.content[0]).toMatchObject({ type: "text", text: "Looking", time: { created: 1 } })
 
     emitEvent(events, {
       id: "evt_prompt_admitted",

@@ -18,3 +18,8 @@ test("rolls the compact form over at the rounding boundary", () => {
   expect(Locale.number(999950)).toBe("1.0M")
   expect(Locale.number(1000000)).toBe("1.0M")
 })
+
+test("formats timestamps as zero-padded local month, day, hour, and minute", () => {
+  expect(Locale.timestamp(new Date(2026, 10, 4, 23, 29).getTime())).toBe("11-04 23:29")
+  expect(Locale.timestamp(new Date(2026, 0, 2, 3, 4).getTime())).toBe("01-02 03:04")
+})

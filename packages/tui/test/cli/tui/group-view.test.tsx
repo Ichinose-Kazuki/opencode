@@ -11,6 +11,7 @@ import { SessionGroupView } from "../../../src/routes/session/group-view"
 import { createTimelineAnchors, groupID, type AnchorTarget } from "../../../src/routes/session/anchors"
 import { context } from "../../../src/routes/session/render-context"
 import type { SessionEntry, SessionGroup } from "../../../src/routes/session/grouping/session"
+import { Locale } from "../../../src/util/locale"
 import { emptyThemeSource } from "../../fixture/fixture"
 import { TestTuiContexts } from "../../fixture/tui-environment"
 import { createTuiResolvedConfig } from "../../fixture/tui-runtime"
@@ -87,6 +88,7 @@ test("retains nested expansion state and registers exact headers and parts", asy
   const b: AnchorTarget = { type: "part", ref: { messageID: "b", partID: "read-b" } }
   try {
     await app.waitForFrame((frame) => frame.includes("Explored"))
+    expect(app.captureCharFrame()).toContain(Locale.timestamp(0))
     expect(app.captureCharFrame()).not.toContain("Target B")
     expect(anchors.get(b)).toBeUndefined()
     expect(anchors.get(nested)).toBeUndefined()

@@ -14,6 +14,7 @@ import { InlineToolRow, reasoningContent, toolDisplay } from "./message-parts"
 import { use } from "./render-context"
 import { resolvePart } from "./rows"
 import { generateThinkingSyntax } from "./thinking-syntax"
+import { GroupTimestamp, TimestampLineIf } from "./timestamps"
 
 type Renderers = {
   message: (messageID: string) => SessionMessageInfo | undefined
@@ -194,6 +195,9 @@ function GroupContent(props: GroupProps) {
         </Show>
       </Show>
       <PendingEntries {...props} entries={entries()} />
+      <Show when={grouped() && (props.node.kind === "reasoning" ? thoughts().length > 0 : tools().length > 0)}>
+        <GroupTimestamp node={props.node} message={props.message} />
+      </Show>
     </GroupAnchor>
   )
 }
@@ -227,6 +231,9 @@ function ActivityGroup(props: GroupProps) {
         </Show>
       </Show>
       <PendingEntries {...props} entries={entries()} />
+      <Show when={summary().label}>
+        <GroupTimestamp node={props.node} message={props.message} />
+      </Show>
     </GroupAnchor>
   )
 }
@@ -260,6 +267,7 @@ function InstructionsGroup(props: GroupProps) {
       <Show when={disclosure.expanded()}>
         <Children {...props} nodes={props.node.children} mode="normal" />
       </Show>
+      <GroupTimestamp node={props.node} message={props.message} />
     </GroupAnchor>
   )
 }
@@ -397,6 +405,7 @@ function ThoughtEntry(props: { entry: SessionEntry; message: Renderers["message"
             fg={theme.text.muted}
           />
         </box>
+        <TimestampLineIf time={part()?.time?.created} paddingLeft={0} />
       </EntryAnchor>
     </Show>
   )

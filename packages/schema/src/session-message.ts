@@ -181,6 +181,10 @@ export const AssistantText = Schema.Struct({
   type: Schema.tag("text"),
   text: Schema.String,
   native: Native.pipe(optional),
+  time: Schema.Struct({
+    created: DateTimeUtcFromMillis,
+    completed: DateTimeUtcFromMillis.pipe(optional),
+  }).pipe(optional),
 }).annotate({ identifier: "Session.Message.Assistant.Text" })
 
 export interface AssistantReasoning extends Schema.Schema.Type<typeof AssistantReasoning> {}

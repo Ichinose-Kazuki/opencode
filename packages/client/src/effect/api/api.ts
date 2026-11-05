@@ -593,6 +593,7 @@ export type SessionLogOutput =
             readonly boundary: Session.ForkBoundary
             readonly instructions?: { readonly [x: Instruction.Key]: Instruction.Hash } | undefined
             readonly instructionEntries?: InstructionEntry.Snapshot | undefined
+            readonly asChild?: boolean | undefined
           }
         }
       | {

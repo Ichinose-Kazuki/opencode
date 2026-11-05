@@ -16,6 +16,15 @@ export function datetime(input: number): string {
   return `${localTime} · ${localDate}`
 }
 
+export function timestamp(input: number): string {
+  const date = new Date(input)
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  const hour = String(date.getHours()).padStart(2, "0")
+  const minute = String(date.getMinutes()).padStart(2, "0")
+  return `${month}-${day} ${hour}:${minute}`
+}
+
 export function number(num: number): string {
   // 999950+ would round to "1000.0K"
   if (num >= 999950) {

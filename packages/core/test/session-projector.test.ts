@@ -915,6 +915,12 @@ describe("SessionProjector", () => {
         assistantMessageID: SessionMessage.ID.make("msg_assistant_completed"),
         ordinal: 0,
       })
+      yield* service.publish(SessionEvent.Text.Ended, {
+        sessionID,
+        assistantMessageID: SessionMessage.ID.make("msg_assistant_completed"),
+        ordinal: 0,
+        text: "",
+      })
 
       const rows = yield* db
         .select()
@@ -932,7 +938,9 @@ describe("SessionProjector", () => {
           type: "assistant",
           agent: build,
           model,
-          content: [SessionMessage.AssistantText.make({ type: "text", text: "" })],
+          content: [
+            SessionMessage.AssistantText.make({ type: "text", text: "", time: { created, completed: created } }),
+          ],
           time: { created: DateTime.makeUnsafe(1), completed: DateTime.makeUnsafe(2) },
         }),
         SessionMessage.Assistant.make({
