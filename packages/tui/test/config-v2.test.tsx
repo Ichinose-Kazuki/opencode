@@ -167,7 +167,8 @@ test("uses command IDs as keybind keys", () => {
 test("preserves current navigation defaults", () => {
   const config = resolve({}, { terminalSuspend: true })
 
-  expect(config.keybinds.get("open.menu")).toMatchObject([{ key: "ctrl+o" }])
+  expect(config.keybinds.get("open.menu")).toMatchObject([{ key: "ctrl+shift+o" }])
+  expect(config.keybinds.get("session.verbosity.toggle_low")).toMatchObject([{ key: "ctrl+o" }])
   expect(config.keybinds.get("session.tab.next")).toMatchObject([{ key: "ctrl+tab,alt+down" }])
   expect(config.keybinds.get("session.tab.previous")).toMatchObject([{ key: "ctrl+shift+tab,alt+up" }])
   expect(config.keybinds.get("session.tab.next_unread")).toMatchObject([{ key: "alt+shift+down" }])

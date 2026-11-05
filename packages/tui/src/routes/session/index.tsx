@@ -119,6 +119,7 @@ import { stringWidth } from "../../util/string-width"
 import { useArgs } from "../../context/args"
 import { withTimestampedFallback } from "@opencode/util/session-title-fallback"
 import { useSessionTabs, type ScrollAnchor } from "../../context/session-tabs"
+import { useTranscript } from "../../context/transcript"
 import { createSingleFlight } from "../../util/single-flight"
 import { createDelayedPresence } from "../../util/delayed-presence"
 import { SessionLocationMissing } from "./location-missing"
@@ -128,7 +129,7 @@ import { createHistoryPrepend } from "./history"
 import { context, use, type PendingAction } from "./render-context"
 import { INLINE_TOOL_ICON_WIDTH, InlineToolRow, ReasoningPart, TextPart, toolDisplay } from "./message-parts"
 import { entryTime, Timestamped } from "./timestamps"
-import { defaultVerbosity, type GroupKind, type SessionEntry } from "./grouping/session"
+import type { GroupKind, SessionEntry } from "./grouping/session"
 import { SessionGroupView } from "./group-view"
 import { useEntryAnchor } from "./anchor-view"
 import { containsAnchor, createTimelineAnchors, groupID } from "./anchors"
@@ -245,7 +246,8 @@ export function Session(props: {
   const markdownMode = createMemo(() => config.session?.markdown ?? "rendered")
   const diffWrapMode = createMemo(() => config.diffs?.wrap ?? "word")
   const groupExploration = createMemo(() => config.session?.grouping !== "none")
-  const verbosity = createMemo(() => config.session?.verbosity ?? defaultVerbosity)
+  const transcript = useTranscript()
+  const verbosity = transcript.verbosity
   // High opens exploration and instruction summaries by default; everything else starts collapsed.
   const groupExpanded = (groupID: string, kind: GroupKind) =>
     sessionTabs.groupExpanded(sessionID, groupID) ??
@@ -289,6 +291,7 @@ export function Session(props: {
     (id) => {
       if (id === sessionID) setRowsSynced(true)
     },
+    verbosity,
   )
   const boundaries = createMemo(() => messageBoundaryIDs(rows, messages()))
   const anchors = createTimelineAnchors()
@@ -1204,11 +1207,21 @@ export function Session(props: {
       run: () => {
         const levels = ["low", "medium", "high"] as const
         const next = levels[(levels.indexOf(verbosity()) + 1) % levels.length]
+        transcript.clear()
         void configState
           .update((draft) => {
             draft.session = { ...draft.session, verbosity: next }
           })
           .catch(toast.error)
+        dialog.clear()
+      },
+    },
+    {
+      title: transcript.folded() ? "Show transcript details" : "Fold transcript details",
+      id: "session.verbosity.toggle_low",
+      group: "Session",
+      run: () => {
+        transcript.toggleFold()
         dialog.clear()
       },
     },

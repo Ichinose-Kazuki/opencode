@@ -89,6 +89,30 @@ test("low wraps tools, thoughts and instruction loads in activity; text and othe
   ).toEqual([])
 })
 
+test("low folds file edits and shell runs into one activity group", () => {
+  const rows = reduceSessionRows(
+    [
+      assistant("a", [
+        tool("shell", "shell"),
+        tool("edit", "edit"),
+        tool("write", "write"),
+        tool("patch", "patch"),
+        { type: "text", text: "Done" },
+      ]),
+    ],
+    new Set(),
+    false,
+    "low",
+  )
+  expect(rows.map((row) => (row.type === "group" ? `${row.kind}:${row.size}` : row.type))).toEqual([
+    "activity:4",
+    "part",
+  ])
+  const activity = rows[0]
+  if (activity.type !== "group") throw new Error("Expected activity")
+  expect(groupRefs(activity).map((ref) => ref.partID)).toEqual(["shell", "edit", "write", "patch"])
+})
+
 test("low hydration nests subgroups inside one activity group per run", () => {
   const messages: SessionMessageInfo[] = [
     { type: "user", id: "u", text: "Go", time: { created: 0 } },

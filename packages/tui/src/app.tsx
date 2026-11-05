@@ -94,6 +94,7 @@ import { ArgsProvider, useArgs, type Args } from "./context/args"
 import { openUrl } from "@opencode/util/open"
 import { PromptRefProvider, usePromptRef } from "./context/prompt"
 import { Config, ConfigProvider, useConfig } from "./config"
+import { TranscriptProvider } from "./context/transcript"
 import { newSessionLocation } from "./config/new-session-location"
 import { UpdateNotificationProvider, useUpdateNotification, type UpdateSource } from "./context/update-notification"
 import { PluginProvider, usePlugin, type PackageSource } from "./plugin/context"
@@ -419,7 +420,9 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                                                                                 packages={input.packages}
                                                                                 directories={pluginDirectories}
                                                                               >
-                                                                                <App />
+                                                                                <TranscriptProvider>
+                                                                                  <App />
+                                                                                </TranscriptProvider>
                                                                               </PluginProvider>
                                                                             </PanelProvider>
                                                                           </UpdateNotificationProvider>

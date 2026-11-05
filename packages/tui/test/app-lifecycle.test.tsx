@@ -15,7 +15,7 @@ import { createAppFixture } from "./fixture/app"
 import { waitForHighlightedFrame } from "./fixture/frame"
 import type { PluginInfo } from "@opencode/client"
 
-test.each([100, 44])("Ctrl-O is immediate, dismissible, and prunes cached deletions at width %s", async (width) => {
+test.each([100, 44])("Ctrl-Shift-O is immediate, dismissible, and prunes cached deletions at width %s", async (width) => {
   await using state = await tmpdir()
   const requested = Promise.withResolvers<void>()
   const response = Promise.withResolvers<Response>()
@@ -50,7 +50,7 @@ test.each([100, 44])("Ctrl-O is immediate, dismissible, and prunes cached deleti
   try {
     await setup.ready
     await setup.waitForFrame((frame) => frame.includes("commands"))
-    setup.mockInput.pressKey("o", { ctrl: true })
+    setup.mockInput.pressKey("o", { ctrl: true, shift: true })
     await requested.promise
     await setup.renderOnce()
     expect(setup.captureCharFrame()).toContain("Search sessions")
@@ -67,23 +67,23 @@ test.each([100, 44])("Ctrl-O is immediate, dismissible, and prunes cached deleti
       ]),
     )
     await setup.waitForFrame((frame) => frame.includes("Fixture project"))
-    setup.mockInput.pressKey("o", { ctrl: true })
+    setup.mockInput.pressKey("o", { ctrl: true, shift: true })
     expect(requests).toBe(1)
     setup.mockInput.pressEscape()
     await setup.waitForFrame((frame) => !frame.includes("Fixture project"))
     response.resolve(json({ data: [{ ...cachedSession, id: "ses_disposed", title: "Disposed response" }], cursor: {} }))
     await setup.renderOnce()
     expect(setup.captureCharFrame()).not.toContain("Fixture project")
-    setup.mockInput.pressKey("o", { ctrl: true })
+    setup.mockInput.pressKey("o", { ctrl: true, shift: true })
     await setup.waitForFrame((frame) => frame.includes("Refreshing"))
     expect(setup.captureCharFrame()).not.toContain("Disposed")
     setup.mockInput.pressEscape()
     await setup.waitForFrame((frame) => !frame.includes("Fixture project"))
-    setup.mockInput.pressKey("o", { ctrl: true })
+    setup.mockInput.pressKey("o", { ctrl: true, shift: true })
     await setup.waitForFrame((frame) => frame.includes("Cached"))
     setup.mockInput.pressEscape()
     await setup.waitForFrame((frame) => !frame.includes("Fixture project"))
-    setup.mockInput.pressKey("o", { ctrl: true })
+    setup.mockInput.pressKey("o", { ctrl: true, shift: true })
     await setup.waitForFrame((frame) => frame.includes("Cached") && frame.includes("Refreshing"))
     setup.events.emit({
       id: "evt_deleted",
@@ -98,7 +98,7 @@ test.each([100, 44])("Ctrl-O is immediate, dismissible, and prunes cached deleti
     expect(setup.captureCharFrame()).not.toContain("Cached")
     setup.mockInput.pressEscape()
     await setup.waitForFrame((frame) => !frame.includes("Fixture project"))
-    setup.mockInput.pressKey("o", { ctrl: true })
+    setup.mockInput.pressKey("o", { ctrl: true, shift: true })
     await setup.waitForFrame((frame) => frame.includes("Could not refresh sessions"))
     expect(setup.captureCharFrame()).not.toContain("Cached")
   } finally {
@@ -109,7 +109,7 @@ test.each([100, 44])("Ctrl-O is immediate, dismissible, and prunes cached deleti
 })
 
 test.each(["dismissed", "refreshing"])(
-  "Ctrl-O retains committed movement of a cached-only session while %s",
+  "Ctrl-Shift-O retains committed movement of a cached-only session while %s",
   async (phase) => {
     await using state = await tmpdir()
     const refresh = Promise.withResolvers<Response>()
@@ -173,12 +173,12 @@ test.each(["dismissed", "refreshing"])(
     try {
       await setup.ready
       await setup.waitForFrame((frame) => frame.includes("commands"))
-      setup.mockInput.pressKey("o", { ctrl: true })
+      setup.mockInput.pressKey("o", { ctrl: true, shift: true })
       await setup.waitForFrame((frame) => frame.includes(cached.title) && !frame.includes("Refreshing"))
       setup.mockInput.pressEscape()
       await setup.waitForFrame((frame) => !frame.includes("Search sessions"))
       if (phase === "refreshing") {
-        setup.mockInput.pressKey("o", { ctrl: true })
+        setup.mockInput.pressKey("o", { ctrl: true, shift: true })
         await setup.waitForFrame((frame) => frame.includes(cached.title) && frame.includes("Refreshing"))
       }
       setup.events.emit({
@@ -189,7 +189,7 @@ test.each(["dismissed", "refreshing"])(
         data: { sessionID: cached.id, location: { directory: "/fixture/new" }, projectID: "proj_new" },
       })
       if (phase === "dismissed") {
-        setup.mockInput.pressKey("o", { ctrl: true })
+        setup.mockInput.pressKey("o", { ctrl: true, shift: true })
         refresh.resolve(new Response("Unavailable", { status: 503 }))
         await setup.waitForFrame((frame) => frame.includes("Could not refresh sessions"))
       }

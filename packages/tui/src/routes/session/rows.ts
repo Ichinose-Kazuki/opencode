@@ -44,14 +44,18 @@ export async function completeGroupBoundary(input: {
   }
 }
 
-export function createSessionRows(sessionID: Accessor<string>, onSynced?: (sessionID: string) => void) {
+export function createSessionRows(
+  sessionID: Accessor<string>,
+  onSynced?: (sessionID: string) => void,
+  verbosityOverride?: Accessor<Verbosity>,
+) {
   const data = useData()
   const client = useClient()
   const config = useConfig()
   const [rows, setRows] = createStore<(SessionRow & { key?: string })[]>([])
   const revertBoundary = () => data.session.get(sessionID())?.revert?.messageID
   const turnTokens = () => Boolean(config.data.debug?.turn_tokens)
-  const verbosity = () => config.data.session?.verbosity ?? defaultVerbosity
+  const verbosity = () => verbosityOverride?.() ?? config.data.session?.verbosity ?? defaultVerbosity
 
   function reduce() {
     const messages = data.session.message.list(sessionID())
